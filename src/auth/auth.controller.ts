@@ -1,4 +1,11 @@
-import { Controller, HttpCode, HttpStatus, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import type { GithubAuthRequestDto, LoginResponseDto } from './dtos';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -37,18 +44,15 @@ export class AuthController {
     description: 'Refresh Token이 유효하지 않음',
   })
   @HttpCode(200)
-  @AuthGuard()
   @TypedRoute.Post('/refresh')
   async authRefreshSignIn(
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<LoginResponseDto> {
     const refreshToken = req.cookies?.[TOKEN_CONSTANTS.REFRESH_TOKEN_COOKIE];
-
     if (!refreshToken) {
-      throw new Error('Refresh token not found');
+      throw new UnauthorizedException('Refresh token not found');
     }
-
     return this.authService.loginByRefresh(refreshToken, res);
   }
 
