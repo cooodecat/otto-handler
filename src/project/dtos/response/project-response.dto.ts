@@ -9,20 +9,16 @@ export interface ProjectResponseDto {
   projectName: string;
   /** 프로젝트 설명 */
   projectDescription: string | null;
-  /** GitHub 저장소 URL */
-  githubRepositoryUrl: string;
   /** GitHub 저장소 이름 */
-  githubRepositoryName: string;
+  githubRepositoryName: string | null;
   /** GitHub 저장소 ID */
-  githubRepositoryId: string;
+  githubRepositoryId: string | null;
   /** GitHub 소유자 이름 */
-  githubOwner: string;
-  /** GitHub 소유자 ID */
-  githubOwnerId: string;
+  githubOwner: string | null;
   /** 선택된 브랜치 */
-  selectedBranch: string;
+  selectedBranch: string | null;
   /** GitHub App 설치 ID */
-  installationId: string;
+  installationId: string | null;
   /** CodeBuild 프로젝트 이름 */
   codebuildProjectName: string;
   /** 빌드 이미지 */

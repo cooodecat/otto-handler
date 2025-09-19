@@ -6,6 +6,7 @@ import { Pipeline } from './entities/pipeline.entity';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { Project } from './entities/project.entity';
+import { GithubApp } from './entities/github-app.entity';
 
 @Injectable()
 export class DatabaseConfigService implements TypeOrmOptionsFactory {
@@ -18,9 +19,9 @@ export class DatabaseConfigService implements TypeOrmOptionsFactory {
       url:
         this.configService.get<string>('DATABASE_URL') ||
         'postgresql://postgres:password@localhost:5432/otto',
-      entities: [Pipeline, User, RefreshToken, Project],
+      entities: [Pipeline, User, RefreshToken, Project, GithubApp],
       synchronize: this.configService.get<string>('NODE_ENV') !== 'production',
-      logging: this.configService.get<string>('NODE_ENV') === 'development',
+      //logging: this.configService.get<string>('NODE_ENV') === 'development',
       namingStrategy: new SnakeNamingStrategy(),
     };
   }

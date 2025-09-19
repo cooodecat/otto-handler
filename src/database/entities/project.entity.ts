@@ -10,6 +10,8 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Pipeline } from './pipeline.entity';
+import { GithubApp } from './github-app.entity';
+
 export enum ProjectStatus {
   FAILED = 'FAILED',
   CREATED = 'CREATED',
@@ -34,24 +36,26 @@ export class Project {
   @Column({ nullable: true, type: 'varchar' })
   projectDescription: string | null;
 
-  @Column()
-  githubRepositoryUrl: string;
+  @Column({ nullable: true })
+  installationId: string | null; // FK to GithubApp
 
-  @Column()
-  githubRepositoryName: string;
+  @ManyToOne('GithubApp', 'projects', {
+    nullable: true,
+  })
+  @JoinColumn({ name: 'installation_id' })
+  githubApp: GithubApp | null;
 
-  @Column()
+  @Column({ nullable: true })
   githubRepositoryId: string;
 
-  @Column()
-  githubOwner: string;
-  @Column()
-  githubOwnerId: string;
+  @Column({ nullable: true })
+  githubRepositoryName: string;
 
-  @Column()
+  @Column({ nullable: true })
+  githubOwner: string;
+
+  @Column({ nullable: true })
   selectedBranch: string;
-  @Column()
-  installationId: string;
 
   @Column()
   codebuildProjectName: string;

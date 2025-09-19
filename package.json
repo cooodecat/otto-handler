@@ -36,6 +36,7 @@
     "@nestjs/platform-fastify": "^11.1.6",
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/typeorm": "^11.0.0",
+    "@octokit/app": "^16.1.0",
     "@octokit/auth-app": "^8.1.0",
     "@octokit/rest": "^22.0.0",
     "@supabase/supabase-js": "^2.57.4",
