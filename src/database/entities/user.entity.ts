@@ -8,7 +8,6 @@ import {
 } from 'typeorm';
 import { Project } from './project.entity';
 import { RefreshToken } from './refresh-token.entity';
-import { EncryptionTransformer } from '../transformers/encryption.transformer';
 
 @Entity()
 export class User {
@@ -26,13 +25,6 @@ export class User {
 
   @Column()
   githubId: number;
-
-  @Column({
-    nullable: true,
-    type: 'varchar',
-    transformer: new EncryptionTransformer(),
-  })
-  githubAccessToken: string | null;
 
   @OneToMany(() => Project, (project) => project.user)
   projects: Project[];

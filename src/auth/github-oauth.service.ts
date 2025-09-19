@@ -16,7 +16,9 @@ export class GithubOauthService {
     code,
     state,
   }: GithubAuthRequestDto): Promise<GithubToken | null> {
-    const clientId = this.configService.get<string>('OTTO_GITHUB_OAUTH_ID');
+    const clientId = this.configService.get<string>(
+      'OTTO_GITHUB_OAUTH_CLIENT_ID',
+    );
 
     const clientSecret = this.configService.get<string>(
       'OTTO_GITHUB_OAUTH_SECRET',
