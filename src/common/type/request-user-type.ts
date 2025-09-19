@@ -2,7 +2,7 @@ import { FastifyRequest } from 'fastify';
 
 export interface IRequestType extends FastifyRequest {
   user: {
-    user_id: string;
+    userId: string;
     nickname: string;
     email: string;
   };

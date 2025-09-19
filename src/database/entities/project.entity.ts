@@ -44,9 +44,9 @@ export class Project {
   githubRepositoryId: string;
 
   @Column()
-  github_owner: string;
+  githubOwner: string;
   @Column()
-  github_owner_id: string;
+  githubOwnerId: string;
 
   @Column()
   selectedBranch: string;

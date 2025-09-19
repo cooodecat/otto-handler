@@ -56,7 +56,7 @@ export class AuthGuardRole implements CanActivate {
       // request.user에 사용자 정보 설정
       request.user = {
         email: user.email,
-        user_id: user.userId,
+        userId: user.userId,
         nickname: user.githubUserName || 'user',
       };
 
