@@ -41,6 +41,7 @@ export class PipelineService {
     const pipeline = this.pipelineRepository.create({
       projectId: createPipelineDto.projectId,
       pipelineName: createPipelineDto.pipelineName,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       data: createPipelineDto.data,
     });
 
@@ -126,6 +127,7 @@ export class PipelineService {
     }
 
     if (updatePipelineDto.data !== undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       pipeline.data = updatePipelineDto.data;
     }
 
@@ -180,6 +182,7 @@ export class PipelineService {
       pipelineId: pipeline.pipelineId,
       projectId: pipeline.projectId,
       pipelineName: pipeline.pipelineName,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       data: pipeline.data,
       createdAt: pipeline.createdAt,
       updatedAt: pipeline.updatedAt,

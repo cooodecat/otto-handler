@@ -7,6 +7,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { SwaggerModule, OpenAPIObject } from '@nestjs/swagger';
 import { NestiaSwaggerComposer } from '@nestia/sdk';
+
 async function bootstrap() {
   const adapter = new FastifyAdapter({
     logger: process.env.NODE_ENV !== 'production',
