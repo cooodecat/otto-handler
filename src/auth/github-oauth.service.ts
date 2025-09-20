@@ -25,6 +25,13 @@ export class GithubOauthService {
     );
 
     try {
+      console.log('[GitHub OAuth] Requesting token with:', {
+        code: code?.substring(0, 8) + '...',
+        state: state?.substring(0, 8) + '...',
+        clientId: clientId?.substring(0, 8) + '...',
+        hasClientSecret: !!clientSecret,
+      });
+
       const tokenRes = await fetch(
         'https://github.com/login/oauth/access_token',
         {
@@ -43,18 +50,39 @@ export class GithubOauthService {
       );
 
       if (!tokenRes.ok) {
+        const errorText = await tokenRes.text();
+        console.error('[GitHub OAuth] Token request failed:', {
+          status: tokenRes.status,
+          error: errorText,
+        });
         throw new Error(`HTTP error! status: ${tokenRes.status}`);
       }
 
       const tokenResponse = (await tokenRes.json()) as GitHubTokenType;
 
+      if (tokenResponse.error) {
+        console.error('[GitHub OAuth] GitHub API error:', tokenResponse);
+        return null;
+      }
+
+      if (!tokenResponse.access_token) {
+        console.error(
+          '[GitHub OAuth] No access token in response:',
+          tokenResponse,
+        );
+        return null;
+      }
+
+      console.log('[GitHub OAuth] Token received successfully');
+
       return {
-        access_token: tokenResponse.access_token ?? '',
+        access_token: tokenResponse.access_token,
         access_token_expired_at: 0,
         refresh_token: '',
         refresh_token_expired_at: 0,
       };
-    } catch {
+    } catch (error) {
+      console.error('[GitHub OAuth] Token fetch error:', error);
       return null;
     }
   }
@@ -64,8 +92,11 @@ export class GithubOauthService {
     const tokenData = await this.getGithubToken(dto);
 
     if (tokenData === null) {
+      console.error('[GitHub OAuth] Failed to get GitHub token');
       throw new HttpException('GitHub 토큰 획득 실패', HttpStatus.UNAUTHORIZED);
     }
+
+    console.log('[GitHub OAuth] Fetching user info with access token');
     try {
       const userRes = await fetch('https://api.github.com/user', {
         headers: {
@@ -75,10 +106,21 @@ export class GithubOauthService {
       });
 
       if (!userRes.ok) {
+        const errorText = await userRes.text();
+        console.error('[GitHub OAuth] User info request failed:', {
+          status: userRes.status,
+          error: errorText,
+        });
         throw new Error(`HTTP error! status: ${userRes.status}`);
       }
 
       const userData = (await userRes.json()) as GithubUserType;
+
+      console.log('[GitHub OAuth] User info retrieved:', {
+        id: userData.id,
+        login: userData.login,
+        email: userData.email,
+      });
 
       return {
         ...userData,
