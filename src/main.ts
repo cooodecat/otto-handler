@@ -5,6 +5,9 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+import { SwaggerModule, OpenAPIObject } from '@nestjs/swagger';
+import { NestiaSwaggerComposer } from '@nestia/sdk';
+
 async function bootstrap() {
   const adapter = new FastifyAdapter({
     logger: process.env.NODE_ENV !== 'production',
@@ -40,6 +43,26 @@ async function bootstrap() {
       'Accept',
     ],
   });
+  if (process.env.NODE_ENV !== 'production') {
+    const document = await NestiaSwaggerComposer.document(app, {
+      openapi: '3.1',
+      servers: [
+        {
+          url: `http://localhost:${process.env.OTTO_HANDLER_SERVER_PORT || 4000}/api/v1`,
+          description: 'Localhost',
+        },
+      ],
+      security: {
+        bearer: {
+          type: 'apiKey',
+          name: 'Authorization',
+          in: 'header',
+        },
+      },
+    });
+
+    SwaggerModule.setup('docs', app, document as OpenAPIObject);
+  }
 
   await app.listen(process.env.PORT ?? 3000);
 }
