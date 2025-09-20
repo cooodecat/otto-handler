@@ -346,40 +346,76 @@ export class GithubWebhookService {
     installation: GitHubInstallationDetails,
     sender?: GitHubWebhookPayload['sender'],
   ): Promise<void> {
-    // Organization 설치인 경우 sender ID 사용, 개인 설치인 경우 account ID 사용
-    const searchUserId =
-      installation.account.type === 'Organization' && sender
-        ? sender.id
-        : installation.account.id;
-
     this.logger.log(
-      `🔍 Looking for Otto user with GitHub ID: ${searchUserId} (${installation.account.type === 'Organization' ? 'sender' : 'account'} ID)`,
+      `[Installation] Processing created event for ${installation.account.login} (${installation.account.type})`,
     );
 
-    // GitHub 사용자 ID로 Otto 사용자 찾기
-    const user = await this.userRepository.findOne({
-      where: { githubId: searchUserId },
-    });
+    let user: User | null = null;
+    const searchAttempts: string[] = [];
+
+    // 1. Organization 설치인 경우: sender ID로 먼저 시도
+    if (installation.account.type === 'Organization' && sender) {
+      searchAttempts.push(`sender.id=${sender.id}`);
+      this.logger.log(
+        `[Installation] Attempt 1: Searching by sender GitHub ID: ${sender.id} (${sender.login})`,
+      );
+      user = await this.userRepository.findOne({
+        where: { githubId: sender.id },
+      });
+    }
+
+    // 2. 못 찾았거나 개인 계정인 경우: account ID로 시도
+    if (!user) {
+      searchAttempts.push(`account.id=${installation.account.id}`);
+      this.logger.log(
+        `[Installation] Attempt 2: Searching by account GitHub ID: ${installation.account.id} (${installation.account.login})`,
+      );
+      user = await this.userRepository.findOne({
+        where: { githubId: installation.account.id },
+      });
+    }
+
+    // 3. Organization이고 여전히 못 찾은 경우: GitHub username으로 최종 시도
+    if (!user && installation.account.type === 'Organization' && sender) {
+      searchAttempts.push(`sender.username=${sender.login}`);
+      this.logger.log(
+        `[Installation] Attempt 3: Searching by sender GitHub username: ${sender.login}`,
+      );
+      user = await this.userRepository.findOne({
+        where: { githubUserName: sender.login },
+      });
+    }
 
     if (!user) {
-      this.logger.warn(
-        `⚠️ No Otto user found for GitHub ID ${searchUserId}. Installation: ${installation.account.login} (${installation.account.id}), Sender: ${sender?.login || 'unknown'} (${sender?.id || 'unknown'}). User needs to login to Otto first.`,
+      this.logger.error(
+        `[Installation] ❌ Failed to find Otto user after ${searchAttempts.length} attempts: [${searchAttempts.join(', ')}]. ` +
+          `Installation: ${installation.account.login} (ID: ${installation.account.id}, Type: ${installation.account.type}), ` +
+          `Sender: ${sender?.login || 'unknown'} (ID: ${sender?.id || 'unknown'}). ` +
+          `User must login to Otto first with the GitHub account that will install the app.`,
       );
       return;
     }
 
     this.logger.log(
-      `✅ Found Otto user: ${user.userId} for GitHub ID ${searchUserId}`,
+      `[Installation] ✅ Found Otto user: ${user.userId} (${user.githubUserName}) after ${searchAttempts.length} attempt(s)`,
     );
 
     // GithubApp 엔티티 생성 또는 업데이트
+    const installationId = installation.id.toString();
     const existingGithubApp = await this.githubAppRepository.findOne({
-      where: { installationId: installation.id.toString() },
+      where: { installationId },
     });
 
-    if (!existingGithubApp) {
+    if (existingGithubApp) {
+      this.logger.log(
+        `[Installation] GitHub App record already exists for installation ${installationId}`,
+      );
+      return;
+    }
+
+    try {
       const githubApp = this.githubAppRepository.create({
-        installationId: installation.id.toString(),
+        installationId,
         userId: user.userId,
         accountLogin: installation.account.login,
         accountType: installation.account.type,
@@ -387,8 +423,14 @@ export class GithubWebhookService {
 
       await this.githubAppRepository.save(githubApp);
       this.logger.log(
-        `✅ Created GithubApp record for installation ${installation.id} (${installation.account.login})`,
+        `[Installation] ✅ Successfully created GitHub App record for installation ${installationId} (${installation.account.login})`,
       );
+    } catch (error) {
+      this.logger.error(
+        `[Installation] ❌ Failed to save GitHub App record for installation ${installationId}:`,
+        error,
+      );
+      throw error;
     }
   }
 
