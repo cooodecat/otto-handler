@@ -1,0 +1,15 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { PipelineService } from './pipeline.service';
+import { PipelineController } from './pipeline.controller';
+import { Pipeline } from '../database/entities/pipeline.entity';
+import { Project } from '../database/entities/project.entity';
+import { User } from '../database/entities/user.entity';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Pipeline, Project, User])],
+  providers: [PipelineService],
+  controllers: [PipelineController],
+  exports: [PipelineService],
+})
+export class PipelineModule {}
