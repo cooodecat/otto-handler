@@ -148,19 +148,24 @@ export class AuthService {
     accessToken: string,
     refreshToken: string,
   ): void {
-    response.setCookie(TOKEN_CONSTANTS.ACCESS_TOKEN_COOKIE, accessToken, {
+    const cookieOptions = {
       httpOnly: TOKEN_CONSTANTS.COOKIE_HTTP_ONLY,
       secure: TOKEN_CONSTANTS.COOKIE_SECURE,
       sameSite: TOKEN_CONSTANTS.COOKIE_SAME_SITE,
       path: '/',
+      // Production에서는 .codecat-otto.shop 도메인 전체에서 쿠키 공유
+      ...(process.env.NODE_ENV === 'production' && {
+        domain: '.codecat-otto.shop',
+      }),
+    };
+
+    response.setCookie(TOKEN_CONSTANTS.ACCESS_TOKEN_COOKIE, accessToken, {
+      ...cookieOptions,
       maxAge: TOKEN_CONSTANTS.ACCESS_TOKEN_TTL_SEC,
     });
 
     response.setCookie(TOKEN_CONSTANTS.REFRESH_TOKEN_COOKIE, refreshToken, {
-      httpOnly: TOKEN_CONSTANTS.COOKIE_HTTP_ONLY,
-      secure: TOKEN_CONSTANTS.COOKIE_SECURE,
-      sameSite: TOKEN_CONSTANTS.COOKIE_SAME_SITE,
-      path: '/',
+      ...cookieOptions,
       maxAge: TOKEN_CONSTANTS.REFRESH_TOKEN_TTL_SEC,
     });
   }
@@ -169,13 +174,16 @@ export class AuthService {
    * 인증 쿠키 제거 (private helper)
    */
   private clearAuthCookies(response: FastifyReply): void {
-    response.clearCookie(TOKEN_CONSTANTS.ACCESS_TOKEN_COOKIE, {
+    const clearOptions = {
       path: '/',
-    });
+      // Production에서는 도메인도 일치시켜야 삭제됨
+      ...(process.env.NODE_ENV === 'production' && {
+        domain: '.codecat-otto.shop',
+      }),
+    };
 
-    response.clearCookie(TOKEN_CONSTANTS.REFRESH_TOKEN_COOKIE, {
-      path: '/',
-    });
+    response.clearCookie(TOKEN_CONSTANTS.ACCESS_TOKEN_COOKIE, clearOptions);
+    response.clearCookie(TOKEN_CONSTANTS.REFRESH_TOKEN_COOKIE, clearOptions);
   }
 
   /**
