@@ -6,6 +6,8 @@ import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { UserModule } from './user/user.module';
 import { ProjectModule } from './project/project.module';
+import { GithubAppModule } from './github-app/github-app.module';
+import { PipelineModule } from './pipeline/pipeline.module';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { ProjectModule } from './project/project.module';
     AuthModule,
     UserModule,
     ProjectModule,
+    GithubAppModule,
+    PipelineModule,
   ],
   controllers: [AppController],
   providers: [AppService],
