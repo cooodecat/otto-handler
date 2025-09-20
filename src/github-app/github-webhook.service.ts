@@ -180,7 +180,10 @@ export class GithubWebhookService {
 
     switch (action) {
       case 'created':
-        await this.handleInstallationCreated(installationDetails, payload.sender);
+        await this.handleInstallationCreated(
+          installationDetails,
+          payload.sender,
+        );
         break;
       case 'deleted':
         await this.handleInstallationDeleted(installationDetails);
@@ -197,7 +200,9 @@ export class GithubWebhookService {
   /**
    * GitHub App 리포지토리 설치 변경 이벤트 처리
    */
-  async handleInstallationRepositoriesEvent(payload: GitHubWebhookPayload): Promise<void> {
+  async handleInstallationRepositoriesEvent(
+    payload: GitHubWebhookPayload,
+  ): Promise<void> {
     if (!payload.installation || !payload.action) {
       return;
     }
@@ -215,11 +220,11 @@ export class GithubWebhookService {
 
     if (action === 'added' && payload.repositories_added) {
       this.logger.log(
-        `Added repositories: ${payload.repositories_added.map(repo => repo.full_name).join(', ')}`,
+        `Added repositories: ${payload.repositories_added.map((repo) => repo.full_name).join(', ')}`,
       );
     } else if (action === 'removed' && payload.repositories_removed) {
       this.logger.log(
-        `Removed repositories: ${payload.repositories_removed.map(repo => repo.full_name).join(', ')}`,
+        `Removed repositories: ${payload.repositories_removed.map((repo) => repo.full_name).join(', ')}`,
       );
     }
   }
@@ -227,14 +232,18 @@ export class GithubWebhookService {
   /**
    * GitHub App 레코드가 없으면 생성
    */
-  private async ensureGithubAppRecord(installation: GitHubWebhookPayload['installation']): Promise<void> {
+  private async ensureGithubAppRecord(
+    installation: GitHubWebhookPayload['installation'],
+  ): Promise<void> {
     if (!installation) {
       this.logger.warn('No installation data provided');
       return;
     }
 
     const installationId = installation.id.toString();
-    this.logger.log(`🔍 Checking GitHub App record for installation ${installationId}`);
+    this.logger.log(
+      `🔍 Checking GitHub App record for installation ${installationId}`,
+    );
 
     // 기존 레코드 확인
     const existingGithubApp = await this.githubAppRepository.findOne({
@@ -242,14 +251,20 @@ export class GithubWebhookService {
     });
 
     if (existingGithubApp) {
-      this.logger.log(`✅ GitHub App record already exists for installation ${installationId}`);
+      this.logger.log(
+        `✅ GitHub App record already exists for installation ${installationId}`,
+      );
       return; // 이미 존재함
     }
 
-    this.logger.log(`📝 No existing GitHub App record found, creating new one for installation ${installationId}`);
+    this.logger.log(
+      `📝 No existing GitHub App record found, creating new one for installation ${installationId}`,
+    );
 
     // GitHub 사용자 ID로 Otto 사용자 찾기
-    this.logger.log(`🔍 Looking for Otto user with githubId: ${installation.account.id}`);
+    this.logger.log(
+      `🔍 Looking for Otto user with githubId: ${installation.account.id}`,
+    );
     const user = await this.userRepository.findOne({
       where: { githubId: installation.account.id },
     });
@@ -261,7 +276,9 @@ export class GithubWebhookService {
       return;
     }
 
-    this.logger.log(`✅ Found Otto user: ${user.userId} for GitHub user ${installation.account.login}`);
+    this.logger.log(
+      `✅ Found Otto user: ${user.userId} for GitHub user ${installation.account.login}`,
+    );
 
     try {
       // GitHub App 레코드 생성
@@ -330,10 +347,11 @@ export class GithubWebhookService {
     sender?: GitHubWebhookPayload['sender'],
   ): Promise<void> {
     // Organization 설치인 경우 sender ID 사용, 개인 설치인 경우 account ID 사용
-    const searchUserId = installation.account.type === 'Organization' && sender 
-      ? sender.id 
-      : installation.account.id;
-    
+    const searchUserId =
+      installation.account.type === 'Organization' && sender
+        ? sender.id
+        : installation.account.id;
+
     this.logger.log(
       `🔍 Looking for Otto user with GitHub ID: ${searchUserId} (${installation.account.type === 'Organization' ? 'sender' : 'account'} ID)`,
     );
@@ -349,7 +367,7 @@ export class GithubWebhookService {
       );
       return;
     }
-    
+
     this.logger.log(
       `✅ Found Otto user: ${user.userId} for GitHub ID ${searchUserId}`,
     );

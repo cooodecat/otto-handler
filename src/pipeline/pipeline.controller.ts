@@ -1,11 +1,4 @@
-import {
-  Controller,
-  HttpCode,
-  HttpStatus,
-  Req,
-  Query,
-  Body,
-} from '@nestjs/common';
+import { Controller, HttpCode, HttpStatus, Req, Body } from '@nestjs/common';
 import { PipelineService } from './pipeline.service';
 import {
   TypedParam,

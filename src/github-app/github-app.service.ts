@@ -52,26 +52,29 @@ export class GithubAppService {
 
   private async initializeApp(appId: string, privateKey: string) {
     const { App } = await import('@octokit/app');
-    
+
     // Private key 포맷 정리
     let formattedPrivateKey = privateKey;
-    
+
     // 이스케이프된 \n을 실제 개행문자로 변환
     if (formattedPrivateKey.includes('\\n')) {
       formattedPrivateKey = formattedPrivateKey.replace(/\\n/g, '\n');
     }
-    
+
     // PEM 형식 헤더/푸터 확인 및 추가
-    if (!formattedPrivateKey.includes('-----BEGIN') && !formattedPrivateKey.includes('-----END')) {
+    if (
+      !formattedPrivateKey.includes('-----BEGIN') &&
+      !formattedPrivateKey.includes('-----END')
+    ) {
       this.logger.error('Private key is missing PEM headers');
       throw new Error('Invalid private key format');
     }
-    
+
     this.app = new App({
       appId: parseInt(appId),
       privateKey: formattedPrivateKey,
     });
-    
+
     this.logger.log('GitHub App initialized successfully');
   }
 
@@ -86,11 +89,12 @@ export class GithubAppService {
       const octokit = await this.app.getInstallationOctokit(installationId);
 
       // Installation octokit으로 installation repositories 목록 조회
-      const { data } = await (
-        octokit as Octokit
-      ).request('GET /installation/repositories', {
-        per_page: 100,
-      });
+      const { data } = await (octokit as Octokit).request(
+        'GET /installation/repositories',
+        {
+          per_page: 100,
+        },
+      );
 
       return data.repositories.map((repo) => ({
         id: repo.id,
@@ -139,13 +143,14 @@ export class GithubAppService {
         parseInt(installationId),
       );
 
-      const { data } = await (
-        octokit as Octokit
-      ).request('GET /repos/{owner}/{repo}/branches', {
-        owner: params.owner,
-        repo: params.repo,
-        per_page: 100,
-      });
+      const { data } = await (octokit as Octokit).request(
+        'GET /repos/{owner}/{repo}/branches',
+        {
+          owner: params.owner,
+          repo: params.repo,
+          per_page: 100,
+        },
+      );
 
       return data;
     } catch (error: unknown) {
