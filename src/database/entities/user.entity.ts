@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { Project } from './project.entity';
 import { RefreshToken } from './refresh-token.entity';
+import { GithubApp } from './github-app.entity';
 
 @Entity()
 export class User {
@@ -23,7 +24,7 @@ export class User {
   @Column()
   githubAvatarUrl: string;
 
-  @Column()
+  @Column({ unique: true })
   githubId: number;
 
   @OneToMany(() => Project, (project) => project.user)
@@ -31,6 +32,9 @@ export class User {
 
   @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.user)
   refreshTokens: RefreshToken[];
+
+  @OneToMany(() => GithubApp, (githubApp) => githubApp.user)
+  githubApps: GithubApp[];
 
   @CreateDateColumn()
   createdAt: Date;
