@@ -36,9 +36,27 @@ export class GithubWebhookController {
   ): Promise<{ message: string }> {
     this.logger.log(`Received GitHub webhook: ${eventType} - ${deliveryId}`);
 
-    console.log('ㅁㄴㅇㄹㄴㅁㅇㄹㄴㅇㅁㄹ');
+    // 디버깅용 상세 로그 (installation 관련 이벤트)
+    if (
+      eventType === 'installation' ||
+      eventType === 'installation_repositories'
+    ) {
+      this.logger.log(`[Webhook Debug] Installation event details:`, {
+        action: payload.action,
+        installation_id: payload.installation?.id,
+        account: payload.installation?.account?.login,
+        account_type: payload.installation?.account?.type,
+        account_id: payload.installation?.account?.id,
+        sender: payload.sender?.login,
+        sender_id: payload.sender?.id,
+      });
+    }
+
     // 1. 시그니처 검증
     if (!this.verifyWebhookSignature(JSON.stringify(payload), signature)) {
+      this.logger.error(
+        `[Webhook Error] Signature verification failed for ${eventType} event`,
+      );
       throw new BadRequestException('Invalid webhook signature');
     }
 
