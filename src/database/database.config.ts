@@ -20,7 +20,7 @@ export class DatabaseConfigService implements TypeOrmOptionsFactory {
         this.configService.get<string>('DATABASE_URL') ||
         'postgresql://postgres:password@localhost:5432/otto',
       entities: [Pipeline, User, RefreshToken, Project, GithubApp],
-      synchronize: this.configService.get<string>('NODE_ENV') !== 'production',
+      synchronize: true, // Railway에서도 자동 동기화
       //logging: this.configService.get<string>('NODE_ENV') === 'development',
       namingStrategy: new SnakeNamingStrategy(),
     };
