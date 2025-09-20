@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "pnpm-9_x"]
+
+[phases.build]
+cmds = ["pnpm install --frozen-lockfile", "pnpm build"]
+
+[start]
+cmd = "node --max-old-space-size=512 dist/main"
+
+[variables]
+NODE_OPTIONS = "--max-old-space-size=512"
