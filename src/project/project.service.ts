@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Project, ProjectStatus } from '../database/entities/project.entity';
+import { Pipeline } from '../database/entities/pipeline.entity';
 import type {
   CreateProjectRequestDto,
   UpdateProjectRequestDto,
@@ -13,6 +14,8 @@ export class ProjectService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Pipeline)
+    private readonly pipelineRepository: Repository<Pipeline>,
   ) {}
 
   async createProject(
@@ -69,6 +72,19 @@ export class ProjectService {
   }
 
   async deleteProject(projectId: string, userId: string): Promise<void> {
+    // 먼저 프로젝트가 존재하고 사용자가 소유자인지 확인
+    const project = await this.projectRepository.findOne({
+      where: { projectId, userId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    // 관련된 모든 파이프라인 삭제
+    await this.pipelineRepository.delete({ projectId });
+
+    // 프로젝트 삭제
     const result = await this.projectRepository.delete({
       projectId,
       userId,
