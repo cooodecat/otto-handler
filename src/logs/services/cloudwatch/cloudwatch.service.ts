@@ -47,6 +47,13 @@ export class CloudwatchService {
   }
 
   async startPolling(execution: Execution): Promise<void> {
+    // Mock implementation for development
+    if (this.configService.get<boolean>('USE_MOCK_DATA', false)) {
+      this.logger.log(
+        `[MOCK] Starting polling for execution ${execution.executionId}`,
+      );
+      return;
+    }
     const project = await this.projectRepository.findOne({
       where: { projectId: execution.projectId },
     });
