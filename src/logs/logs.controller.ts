@@ -10,6 +10,10 @@ import {
   Request,
   HttpStatus,
   HttpCode,
+  HttpException,
+  BadRequestException,
+  NotFoundException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -43,22 +47,39 @@ export class LogsController {
     description: 'Execution registered successfully',
     type: ExecutionResponseDto,
   })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid request data',
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+  })
   async registerExecution(
     @Body() dto: RegisterExecutionDto,
     @Request() req: IRequestType,
   ): Promise<ExecutionResponseDto> {
-    const execution = await this.logsService.registerExecution({
-      pipelineId: dto.context,
-      projectId: dto.functionName,
-      userId: req.user.userId,
-      executionType: ExecutionType.BUILD,
-      metadata: {
-        ...dto.metadata,
-        inputParams: dto.inputParams,
-      },
-    });
+    try {
+      const execution = await this.logsService.registerExecution({
+        pipelineId: dto.context,
+        projectId: dto.functionName,
+        userId: req.user.userId,
+        executionType: ExecutionType.BUILD,
+        metadata: {
+          ...dto.metadata,
+          inputParams: dto.inputParams,
+        },
+      });
 
-    return this.mapToExecutionResponse(execution);
+      return this.mapToExecutionResponse(execution);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        `Failed to register execution: ${error.message}`,
+      );
+    }
   }
 
   @Get('executions')
@@ -104,15 +125,32 @@ export class LogsController {
     description: 'Returns execution details',
     type: ExecutionResponseDto,
   })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Execution not found',
+  })
   async getExecutionById(
     @Param('id') id: string,
     @Request() req: IRequestType,
   ): Promise<ExecutionResponseDto> {
-    const execution = await this.logsService.getExecutionById(
-      id,
-      req.user.userId,
-    );
-    return this.mapToExecutionResponse(execution);
+    try {
+      if (!id || !id.match(/^[0-9a-f-]+$/i)) {
+        throw new BadRequestException('Invalid execution ID format');
+      }
+      
+      const execution = await this.logsService.getExecutionById(
+        id,
+        req.user.userId,
+      );
+      return this.mapToExecutionResponse(execution);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        `Failed to fetch execution: ${error.message}`,
+      );
+    }
   }
 
   @Get('executions/:id/logs')
