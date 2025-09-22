@@ -13,6 +13,7 @@ import { User } from '../database/entities/user.entity';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { LogsGateway } from './logs.gateway';
 import { JwtService } from '../auth/jwt.service';
+import { TestLogsController } from './test-logs.controller';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import { JwtService } from '../auth/jwt.service';
       Pipeline,
     ]),
   ],
-  controllers: [LogsController],
+  controllers: [LogsController, TestLogsController],
   providers: [
     CloudwatchService,
     LogBufferService,

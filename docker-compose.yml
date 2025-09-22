@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: otto-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: otto_db
+      POSTGRES_USER: otto_user
+      POSTGRES_PASSWORD: otto_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otto_user -d otto_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - otto-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: otto-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - otto-network
+
+  adminer:
+    image: adminer
+    container_name: otto-adminer
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    networks:
+      - otto-network
+
+volumes:
+  postgres_data:
+
+networks:
+  otto-network:
+    driver: bridge

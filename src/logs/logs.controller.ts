@@ -107,19 +107,24 @@ export class LogsController {
     @Query('offset') offset: number = 0,
     @Request() req?: IRequestType,
   ): Promise<ExecutionResponseDto[]> {
-    const executions = await this.logsService.getExecutions({
-      userId: req?.user?.userId,
-      status,
-      executionType,
-      pipelineId,
-      projectId,
-      limit,
-      offset,
-    });
+    try {
+      const executions = await this.logsService.getExecutions({
+        userId: req?.user?.userId,
+        status,
+        executionType,
+        pipelineId,
+        projectId,
+        limit,
+        offset,
+      });
 
-    return executions.map((execution) =>
-      this.mapToExecutionResponse(execution),
-    );
+      return executions.map((execution) =>
+        this.mapToExecutionResponse(execution),
+      );
+    } catch (error) {
+      console.error('Error fetching executions:', error);
+      throw new InternalServerErrorException('Failed to fetch executions');
+    }
   }
 
   @Get('executions/:id')

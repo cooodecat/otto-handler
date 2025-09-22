@@ -14,7 +14,15 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
 @Injectable()
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin:
+      process.env.NODE_ENV === 'production'
+        ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
+        : [
+            process.env.FRONTEND_URL || 'http://localhost:5173',
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:5175',
+          ],
     credentials: true,
   },
   namespace: '/logs',
@@ -32,12 +40,26 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
-    // JWT 토큰 검증
+    // JWT 토큰 검증 (개발 환경에서는 선택적)
     const token = client.handshake.auth.token as string;
+
+    // 개발 환경에서는 토큰이 없어도 허용
+    if (process.env.NODE_ENV === 'development' && !token) {
+      client.data.userId = 'dev-user';
+      this.logger.log(`Client connected (dev mode): ${client.id}`);
+      return;
+    }
+
     try {
       const user = this.validateToken(token);
       if (!user) {
         this.logger.warn(`Invalid token for client ${client.id}`);
+        // 개발 환경에서는 토큰 검증 실패해도 연결 허용
+        if (process.env.NODE_ENV === 'development') {
+          client.data.userId = 'dev-user-no-auth';
+          this.logger.log(`Client connected (dev mode, no auth): ${client.id}`);
+          return;
+        }
         client.disconnect();
         return;
       }
@@ -49,6 +71,14 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `Authentication failed for client ${client.id}:`,
         error,
       );
+      // 개발 환경에서는 에러가 있어도 연결 허용
+      if (process.env.NODE_ENV === 'development') {
+        client.data.userId = 'dev-user-error';
+        this.logger.log(
+          `Client connected (dev mode, auth error): ${client.id}`,
+        );
+        return;
+      }
       client.disconnect();
     }
   }
@@ -136,7 +166,10 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // CloudWatch에서 새 로그 수신 시 호출
   broadcastLogs(executionId: string, logs: any[]): void {
-    this.server.to(`execution:${executionId}`).emit('logs:new', logs);
+    // Broadcast each log individually for real-time effect
+    logs.forEach((log) => {
+      this.server.to(`execution:${executionId}`).emit('logs:new', log);
+    });
     this.logger.debug(
       `Broadcasted ${logs.length} logs to execution:${executionId}`,
     );

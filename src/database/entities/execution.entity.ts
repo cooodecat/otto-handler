@@ -35,21 +35,21 @@ export class Execution {
   pipelineId: string;
 
   @ManyToOne(() => Pipeline)
-  @JoinColumn({ name: 'pipeline_id' })
+  @JoinColumn({ name: 'pipelineId' })
   pipeline: Pipeline;
 
   @Column()
   projectId: string;
 
   @ManyToOne(() => Project)
-  @JoinColumn({ name: 'project_id' })
+  @JoinColumn({ name: 'projectId' })
   project: Project;
 
   @Column()
   userId: string;
 
   @ManyToOne(() => User)
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'userId' })
   user: User;
 
   @Column({ type: 'enum', enum: ExecutionType })

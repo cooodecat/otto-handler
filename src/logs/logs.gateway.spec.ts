@@ -128,12 +128,28 @@ describe('LogsGateway', () => {
 
     it('should emit buffered and historical logs if available', async () => {
       const payload = { executionId: 'test-execution-id' };
-      const bufferedLogs = [{ message: 'buffered log' }];
-      const historicalLogs = [{ message: 'historical log' }];
+      const bufferedLogs = [
+        {
+          executionId: 'test-execution-id',
+          timestamp: new Date(),
+          message: 'buffered log',
+          level: 'info' as const,
+        },
+      ];
+      const historicalLogs = [
+        {
+          logId: '1',
+          executionId: 'test-execution-id',
+          timestamp: new Date(),
+          message: 'historical log',
+          level: 'INFO' as const,
+          createdAt: new Date(),
+        },
+      ];
 
       logsService.checkAccess.mockResolvedValue(true);
       logBufferService.getRecentLogs.mockReturnValue(bufferedLogs);
-      logsService.getHistoricalLogs.mockResolvedValue(historicalLogs as any);
+      logsService.getHistoricalLogs.mockResolvedValue(historicalLogs);
 
       await gateway.handleSubscribe(mockSocket, payload);
 

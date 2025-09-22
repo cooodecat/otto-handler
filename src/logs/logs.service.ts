@@ -199,11 +199,25 @@ export class LogsService {
     executionId: string,
     query: LogQueryDto,
   ): Promise<ExecutionLog[]> {
-    return this.logStorage.getExecutionLogs(
+    // First try to get logs from database
+    const dbLogs = await this.logStorage.getExecutionLogs(
       executionId,
       query.limit,
       query.offset,
     );
+
+    // If no logs in database, try buffer
+    if (dbLogs.length === 0) {
+      const bufferLogs = this.logBuffer.getRecentLogs(executionId, query.limit);
+      // Convert buffer logs to ExecutionLog format if needed
+      return bufferLogs.map((log) => ({
+        ...log,
+        executionId,
+        createdAt: log.timestamp || new Date(),
+      })) as ExecutionLog[];
+    }
+
+    return dbLogs;
   }
 
   async getBufferedLogs(executionId: string, limit?: number): Promise<any[]> {
@@ -211,23 +225,58 @@ export class LogsService {
   }
 
   async checkAccess(userId: string, executionId: string): Promise<boolean> {
+    // Development mode: allow access to test executions
+    if (
+      process.env.NODE_ENV === 'development' &&
+      executionId.startsWith('test-')
+    ) {
+      this.logger.log(
+        `Development mode: Allowing access to test execution ${executionId}`,
+      );
+      return true;
+    }
+
     const execution = await this.executionRepository.findOne({
       where: { executionId },
       relations: ['project'],
     });
 
     if (!execution) {
+      // In development mode, don't throw for test executions
+      if (process.env.NODE_ENV === 'development') {
+        this.logger.warn(
+          `Execution ${executionId} not found, but allowing in dev mode`,
+        );
+        return true;
+      }
       throw new NotFoundException(`Execution ${executionId} not found`);
     }
 
     // 실행 소유자이거나 프로젝트 소유자인 경우 접근 허용
-    return execution.userId === userId || execution.project.userId === userId;
+    return (
+      execution.userId === userId ||
+      (execution.project && execution.project.userId === userId)
+    );
   }
 
   async getHistoricalLogs(
     executionId: string,
     limit: number,
   ): Promise<ExecutionLog[]> {
+    // In development mode with test executions, return empty array if no logs found
+    if (
+      process.env.NODE_ENV === 'development' &&
+      executionId.startsWith('test-')
+    ) {
+      try {
+        return await this.logStorage.getExecutionLogs(executionId, limit);
+      } catch (error) {
+        this.logger.warn(
+          `No historical logs for test execution ${executionId}`,
+        );
+        return [];
+      }
+    }
     return this.logStorage.getExecutionLogs(executionId, limit);
   }
 
