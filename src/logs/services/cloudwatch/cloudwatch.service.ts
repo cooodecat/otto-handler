@@ -40,7 +40,8 @@ export class CloudwatchService {
       region: this.configService.get<string>('AWS_REGION') || 'ap-northeast-2',
       credentials: {
         accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID') || '',
-        secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY') || '',
+        secretAccessKey:
+          this.configService.get<string>('AWS_SECRET_ACCESS_KEY') || '',
       },
     });
   }
@@ -51,11 +52,15 @@ export class CloudwatchService {
     });
 
     if (!project?.cloudwatchLogGroup) {
-      throw new Error(`CloudWatch log group not found for project ${execution.projectId}`);
+      throw new Error(
+        `CloudWatch log group not found for project ${execution.projectId}`,
+      );
     }
 
     if (!execution.logStreamName) {
-      throw new Error(`Log stream name not found for execution ${execution.executionId}`);
+      throw new Error(
+        `Log stream name not found for execution ${execution.executionId}`,
+      );
     }
 
     let nextToken: string | undefined;
@@ -72,7 +77,8 @@ export class CloudwatchService {
         };
 
         const command = new GetLogEventsCommand(input);
-        const response: GetLogEventsCommandOutput = await this.client.send(command);
+        const response: GetLogEventsCommandOutput =
+          await this.client.send(command);
 
         if (response.events && response.events.length > 0) {
           const logs: LogEvent[] = response.events.map((event) => ({
@@ -100,16 +106,26 @@ export class CloudwatchService {
           where: { executionId: execution.executionId },
         });
 
-        if (updatedExecution?.status === 'success' || updatedExecution?.status === 'failed') {
-          this.logger.log(`Execution ${execution.executionId} completed with status: ${updatedExecution.status}`);
+        if (
+          updatedExecution?.status === 'success' ||
+          updatedExecution?.status === 'failed'
+        ) {
+          this.logger.log(
+            `Execution ${execution.executionId} completed with status: ${updatedExecution.status}`,
+          );
           this.stopPolling(execution.executionId);
         }
       } catch (error) {
         retryCount++;
-        this.logger.error(`Polling error for ${execution.executionId} (retry ${retryCount}/${maxRetries}):`, error);
-        
+        this.logger.error(
+          `Polling error for ${execution.executionId} (retry ${retryCount}/${maxRetries}):`,
+          error,
+        );
+
         if (retryCount >= maxRetries) {
-          this.logger.error(`Max retries reached for ${execution.executionId}. Stopping polling.`);
+          this.logger.error(
+            `Max retries reached for ${execution.executionId}. Stopping polling.`,
+          );
           this.stopPolling(execution.executionId);
         }
       }

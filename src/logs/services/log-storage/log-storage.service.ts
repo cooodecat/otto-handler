@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ExecutionLog, LogLevel } from '../../../database/entities/execution-log.entity';
+import {
+  ExecutionLog,
+  LogLevel,
+} from '../../../database/entities/execution-log.entity';
 import { Execution } from '../../../database/entities/execution.entity';
 
 interface LogEvent {
@@ -33,7 +36,7 @@ export class LogStorageService {
     await queryRunner.startTransaction();
 
     try {
-      const executionLogs = logs.map(log => {
+      const executionLogs = logs.map((log) => {
         const executionLog = new ExecutionLog();
         executionLog.executionId = log.executionId;
         executionLog.timestamp = log.timestamp;
@@ -44,7 +47,7 @@ export class LogStorageService {
 
       await queryRunner.manager.save(ExecutionLog, executionLogs);
       await queryRunner.commitTransaction();
-      
+
       this.logger.debug(`Saved ${logs.length} logs to database`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -91,7 +94,9 @@ export class LogStorageService {
 
   async deleteExecutionLogs(executionId: string): Promise<void> {
     const result = await this.executionLogRepository.delete({ executionId });
-    this.logger.log(`Deleted ${result.affected} logs for execution ${executionId}`);
+    this.logger.log(
+      `Deleted ${result.affected} logs for execution ${executionId}`,
+    );
   }
 
   async deleteOldLogs(daysToKeep: number): Promise<number> {
@@ -104,7 +109,9 @@ export class LogStorageService {
       .where('createdAt < :cutoffDate', { cutoffDate })
       .execute();
 
-    this.logger.log(`Deleted ${result.affected} logs older than ${daysToKeep} days`);
+    this.logger.log(
+      `Deleted ${result.affected} logs older than ${daysToKeep} days`,
+    );
     return result.affected || 0;
   }
 

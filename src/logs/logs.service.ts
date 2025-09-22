@@ -1,10 +1,19 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
 import { LogBufferService } from './services/log-buffer/log-buffer.service';
 import { LogStorageService } from './services/log-storage/log-storage.service';
-import { Execution, ExecutionStatus, ExecutionType } from '../database/entities/execution.entity';
+import {
+  Execution,
+  ExecutionStatus,
+  ExecutionType,
+} from '../database/entities/execution.entity';
 import { ExecutionLog } from '../database/entities/execution-log.entity';
 import { User } from '../database/entities/user.entity';
 import { Pipeline } from '../database/entities/pipeline.entity';
@@ -73,13 +82,16 @@ export class LogsService {
     execution.status = ExecutionStatus.PENDING;
 
     const savedExecution = await this.executionRepository.save(execution);
-    
+
     // CloudWatch 폴링 시작 (로그 스트림이 있는 경우)
     if (dto.logStreamName) {
       try {
         await this.cloudwatchService.startPolling(savedExecution);
       } catch (error) {
-        this.logger.error(`Failed to start polling for execution ${savedExecution.executionId}:`, error);
+        this.logger.error(
+          `Failed to start polling for execution ${savedExecution.executionId}:`,
+          error,
+        );
       }
     }
 
@@ -88,22 +100,33 @@ export class LogsService {
   }
 
   async getExecutions(query: ExecutionQueryDto): Promise<Execution[]> {
-    const queryBuilder = this.executionRepository.createQueryBuilder('execution');
+    const queryBuilder =
+      this.executionRepository.createQueryBuilder('execution');
 
     if (query.userId) {
-      queryBuilder.andWhere('execution.userId = :userId', { userId: query.userId });
+      queryBuilder.andWhere('execution.userId = :userId', {
+        userId: query.userId,
+      });
     }
     if (query.pipelineId) {
-      queryBuilder.andWhere('execution.pipelineId = :pipelineId', { pipelineId: query.pipelineId });
+      queryBuilder.andWhere('execution.pipelineId = :pipelineId', {
+        pipelineId: query.pipelineId,
+      });
     }
     if (query.projectId) {
-      queryBuilder.andWhere('execution.projectId = :projectId', { projectId: query.projectId });
+      queryBuilder.andWhere('execution.projectId = :projectId', {
+        projectId: query.projectId,
+      });
     }
     if (query.status) {
-      queryBuilder.andWhere('execution.status = :status', { status: query.status });
+      queryBuilder.andWhere('execution.status = :status', {
+        status: query.status,
+      });
     }
     if (query.executionType) {
-      queryBuilder.andWhere('execution.executionType = :executionType', { executionType: query.executionType });
+      queryBuilder.andWhere('execution.executionType = :executionType', {
+        executionType: query.executionType,
+      });
     }
 
     queryBuilder
@@ -121,7 +144,10 @@ export class LogsService {
     return queryBuilder.getMany();
   }
 
-  async getExecutionById(executionId: string, userId?: string): Promise<Execution> {
+  async getExecutionById(
+    executionId: string,
+    userId?: string,
+  ): Promise<Execution> {
     const execution = await this.executionRepository.findOne({
       where: { executionId },
       relations: ['pipeline', 'project', 'user'],
@@ -156,7 +182,10 @@ export class LogsService {
       execution.metadata = { ...execution.metadata, ...metadata };
     }
 
-    if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILED) {
+    if (
+      status === ExecutionStatus.SUCCESS ||
+      status === ExecutionStatus.FAILED
+    ) {
       execution.completedAt = new Date();
       // 폴링 중지
       this.cloudwatchService.stopPolling(executionId);
@@ -166,8 +195,15 @@ export class LogsService {
     this.logger.log(`Updated execution ${executionId} status to ${status}`);
   }
 
-  async getExecutionLogs(executionId: string, query: LogQueryDto): Promise<ExecutionLog[]> {
-    return this.logStorage.getExecutionLogs(executionId, query.limit, query.offset);
+  async getExecutionLogs(
+    executionId: string,
+    query: LogQueryDto,
+  ): Promise<ExecutionLog[]> {
+    return this.logStorage.getExecutionLogs(
+      executionId,
+      query.limit,
+      query.offset,
+    );
   }
 
   async getBufferedLogs(executionId: string, limit?: number): Promise<any[]> {
@@ -188,7 +224,10 @@ export class LogsService {
     return execution.userId === userId || execution.project.userId === userId;
   }
 
-  async getHistoricalLogs(executionId: string, limit: number): Promise<ExecutionLog[]> {
+  async getHistoricalLogs(
+    executionId: string,
+    limit: number,
+  ): Promise<ExecutionLog[]> {
     return this.logStorage.getExecutionLogs(executionId, limit);
   }
 

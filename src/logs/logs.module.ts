@@ -9,6 +9,7 @@ import { ExecutionLog } from '../database/entities/execution-log.entity';
 import { ExecutionArchive } from '../database/entities/execution-archive.entity';
 import { Project } from '../database/entities/project.entity';
 import { User } from '../database/entities/user.entity';
+import { LogsGateway } from './logs.gateway';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { User } from '../database/entities/user.entity';
     LogBufferService,
     LogStorageService,
     LogsService,
+    LogsGateway,
   ],
   exports: [
     CloudwatchService,
