@@ -1,5 +1,9 @@
 import { DataSource } from 'typeorm';
-import { Execution, ExecutionStatus, ExecutionType } from '../entities/execution.entity';
+import {
+  Execution,
+  ExecutionStatus,
+  ExecutionType,
+} from '../entities/execution.entity';
 import { User } from '../entities/user.entity';
 import { Pipeline } from '../entities/pipeline.entity';
 import { Project, ProjectStatus } from '../entities/project.entity';
@@ -55,7 +59,8 @@ export class ExecutionSeeder {
         codebuildProjectName: 'test-build-project',
         cloudwatchLogGroup: '/aws/codebuild/test-project',
         codebuildStatus: ProjectStatus.SUCCESS,
-        codebuildProjectArn: 'arn:aws:codebuild:us-east-1:123456789012:project/test-project',
+        codebuildProjectArn:
+          'arn:aws:codebuild:us-east-1:123456789012:project/test-project',
         createdAt: new Date(),
         updatedAt: new Date(),
       });

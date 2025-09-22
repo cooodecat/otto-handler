@@ -23,13 +23,13 @@ async function runSeeders() {
 
     // Run seeders in order
     console.log('🌱 Running seeders...');
-    
+
     const executionSeeder = new ExecutionSeeder(dataSource);
     await executionSeeder.run();
-    
+
     const logSeeder = new LogSeeder(dataSource);
     await logSeeder.run();
-    
+
     console.log('✅ All seeders completed successfully');
   } catch (error) {
     console.error('❌ Error running seeders:', error);

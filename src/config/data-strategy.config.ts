@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Execution, ExecutionStatus } from '../database/entities/execution.entity';
+import {
+  Execution,
+  ExecutionStatus,
+} from '../database/entities/execution.entity';
 import { ExecutionLog } from '../database/entities/execution-log.entity';
 
 export interface DataStrategy {
@@ -28,7 +31,7 @@ export class MockStrategy implements DataStrategy {
   async fetchLogData(executionId: string): Promise<ExecutionLog[]> {
     const mockExecution = new Execution();
     mockExecution.executionId = executionId;
-    
+
     return [
       {
         id: 1,
@@ -53,7 +56,10 @@ export class MockStrategy implements DataStrategy {
     ];
   }
 
-  async fetchCloudWatchLogs(logGroup: string, logStream: string): Promise<any[]> {
+  async fetchCloudWatchLogs(
+    logGroup: string,
+    logStream: string,
+  ): Promise<any[]> {
     return [
       {
         timestamp: Date.now(),
@@ -80,11 +86,11 @@ export class SeededStrategy implements DataStrategy {
       where: { executionId },
       relations: ['logs'],
     });
-    
+
     if (!execution) {
       throw new Error(`Execution ${executionId} not found in seeded data`);
     }
-    
+
     return execution;
   }
 
@@ -95,7 +101,10 @@ export class SeededStrategy implements DataStrategy {
     });
   }
 
-  async fetchCloudWatchLogs(logGroup: string, logStream: string): Promise<any[]> {
+  async fetchCloudWatchLogs(
+    logGroup: string,
+    logStream: string,
+  ): Promise<any[]> {
     // Return simulated CloudWatch logs from seeded data
     return [
       {
@@ -135,18 +144,21 @@ export class RealStrategy implements DataStrategy {
     });
   }
 
-  async fetchCloudWatchLogs(logGroup: string, logStream: string): Promise<any[]> {
+  async fetchCloudWatchLogs(
+    logGroup: string,
+    logStream: string,
+  ): Promise<any[]> {
     // Real CloudWatch implementation would go here
     const params = {
       logGroupName: logGroup,
       logStreamName: logStream,
       startFromHead: true,
     };
-    
+
     // This would use the actual AWS SDK
     // const response = await this.cloudwatchClient.send(new GetLogEventsCommand(params));
     // return response.events || [];
-    
+
     throw new Error('Real CloudWatch integration not implemented yet');
   }
 
@@ -154,10 +166,10 @@ export class RealStrategy implements DataStrategy {
     // Real S3 archive implementation would go here
     const bucketName = process.env.S3_BUCKET_NAME || 'otto-logs';
     const key = `archives/${executionId}/logs-${Date.now()}.tar.gz`;
-    
+
     // This would use the actual AWS SDK to upload
     // await this.s3Client.send(new PutObjectCommand({ ... }));
-    
+
     return `s3://${bucketName}/${key}`;
   }
 }
@@ -173,7 +185,10 @@ export class DataStrategyFactory {
     s3Client?: any,
   ): DataStrategy {
     const useMockData = this.configService.get<boolean>('USE_MOCK_DATA', false);
-    const useSeededData = this.configService.get<boolean>('USE_SEEDED_DATA', false);
+    const useSeededData = this.configService.get<boolean>(
+      'USE_SEEDED_DATA',
+      false,
+    );
 
     if (useMockData) {
       return new MockStrategy();
@@ -187,10 +202,15 @@ export class DataStrategyFactory {
     }
 
     // Default to real strategy
-    if (!cloudwatchClient || !s3Client || !executionRepository || !logRepository) {
+    if (
+      !cloudwatchClient ||
+      !s3Client ||
+      !executionRepository ||
+      !logRepository
+    ) {
       throw new Error('All clients and repositories required for RealStrategy');
     }
-    
+
     return new RealStrategy(
       cloudwatchClient,
       s3Client,

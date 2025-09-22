@@ -27,7 +27,10 @@ export class LogSeeder {
       build: {
         pending: [
           { level: LogLevel.INFO, message: 'Build job queued' },
-          { level: LogLevel.INFO, message: 'Waiting for available build agent' },
+          {
+            level: LogLevel.INFO,
+            message: 'Waiting for available build agent',
+          },
         ],
         running: [
           { level: LogLevel.INFO, message: 'Build agent assigned' },
@@ -36,7 +39,10 @@ export class LogSeeder {
           { level: LogLevel.INFO, message: 'Running npm install' },
           { level: LogLevel.INFO, message: 'Building application...' },
           { level: LogLevel.INFO, message: 'Running npm run build' },
-          { level: LogLevel.WARNING, message: 'Warning: Using legacy peer deps' },
+          {
+            level: LogLevel.WARNING,
+            message: 'Warning: Using legacy peer deps',
+          },
           { level: LogLevel.INFO, message: 'Running tests...' },
           { level: LogLevel.INFO, message: 'All tests passed (42 total)' },
         ],
@@ -47,35 +53,59 @@ export class LogSeeder {
         ],
         failed: [
           { level: LogLevel.ERROR, message: 'Build failed with exit code 1' },
-          { level: LogLevel.ERROR, message: 'Test suite failed: 5 tests failed' },
-          { level: LogLevel.ERROR, message: 'Error: Cannot find module "@/components"' },
+          {
+            level: LogLevel.ERROR,
+            message: 'Test suite failed: 5 tests failed',
+          },
+          {
+            level: LogLevel.ERROR,
+            message: 'Error: Cannot find module "@/components"',
+          },
           { level: LogLevel.ERROR, message: 'Build process terminated' },
         ],
       },
       deploy: {
         pending: [
           { level: LogLevel.INFO, message: 'Deployment job queued' },
-          { level: LogLevel.INFO, message: 'Preparing deployment configuration' },
+          {
+            level: LogLevel.INFO,
+            message: 'Preparing deployment configuration',
+          },
         ],
         running: [
           { level: LogLevel.INFO, message: 'Starting deployment process' },
           { level: LogLevel.INFO, message: 'Downloading build artifacts' },
-          { level: LogLevel.INFO, message: 'Validating deployment configuration' },
+          {
+            level: LogLevel.INFO,
+            message: 'Validating deployment configuration',
+          },
           { level: LogLevel.INFO, message: 'Creating new task definition' },
           { level: LogLevel.INFO, message: 'Updating ECS service' },
           { level: LogLevel.INFO, message: 'Waiting for service to stabilize' },
-          { level: LogLevel.WARNING, message: 'Warning: High memory usage detected' },
+          {
+            level: LogLevel.WARNING,
+            message: 'Warning: High memory usage detected',
+          },
           { level: LogLevel.INFO, message: 'Health checks in progress' },
         ],
         success: [
-          { level: LogLevel.INFO, message: 'Deployment completed successfully' },
+          {
+            level: LogLevel.INFO,
+            message: 'Deployment completed successfully',
+          },
           { level: LogLevel.INFO, message: 'All health checks passed' },
           { level: LogLevel.INFO, message: 'New version is now live' },
         ],
         failed: [
           { level: LogLevel.ERROR, message: 'Deployment failed' },
-          { level: LogLevel.ERROR, message: 'Health check failed after 5 attempts' },
-          { level: LogLevel.ERROR, message: 'Rolling back to previous version' },
+          {
+            level: LogLevel.ERROR,
+            message: 'Health check failed after 5 attempts',
+          },
+          {
+            level: LogLevel.ERROR,
+            message: 'Rolling back to previous version',
+          },
           { level: LogLevel.INFO, message: 'Rollback completed' },
         ],
       },
@@ -86,17 +116,18 @@ export class LogSeeder {
     for (const execution of executions) {
       const type = execution.executionType.toLowerCase();
       const status = execution.status.toLowerCase();
-      
+
       // Get appropriate log templates
-      const templates = logTemplates[type]?.[status] || logTemplates.build.running;
-      
+      const templates =
+        logTemplates[type]?.[status] || logTemplates.build.running;
+
       // Create logs with incremental timestamps
-      let baseTime = new Date(execution.startedAt);
-      
+      const baseTime = new Date(execution.startedAt);
+
       for (let i = 0; i < templates.length; i++) {
         const template = templates[i];
-        const timestamp = new Date(baseTime.getTime() + (i * 5000)); // 5 seconds apart
-        
+        const timestamp = new Date(baseTime.getTime() + i * 5000); // 5 seconds apart
+
         const log = logRepository.create({
           executionId: execution.executionId,
           timestamp,
@@ -110,7 +141,7 @@ export class LogSeeder {
           },
           createdAt: timestamp,
         });
-        
+
         logsToCreate.push(log);
       }
 
@@ -126,8 +157,10 @@ export class LogSeeder {
 
         for (let i = 0; i < additionalLogs.length; i++) {
           const template = additionalLogs[i];
-          const timestamp = new Date(baseTime.getTime() + ((templates.length + i) * 5000));
-          
+          const timestamp = new Date(
+            baseTime.getTime() + (templates.length + i) * 5000,
+          );
+
           const log = logRepository.create({
             executionId: execution.executionId,
             timestamp,
@@ -141,7 +174,7 @@ export class LogSeeder {
             },
             createdAt: timestamp,
           });
-          
+
           logsToCreate.push(log);
         }
       }
@@ -151,6 +184,8 @@ export class LogSeeder {
     if (logsToCreate.length > 0) {
       await logRepository.save(logsToCreate);
     }
-    console.log(`✅ Seeded ${logsToCreate.length} logs for ${executions.length} executions`);
+    console.log(
+      `✅ Seeded ${logsToCreate.length} logs for ${executions.length} executions`,
+    );
   }
 }

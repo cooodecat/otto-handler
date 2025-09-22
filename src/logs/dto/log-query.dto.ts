@@ -1,4 +1,11 @@
-import { IsOptional, IsString, IsNumber, IsEnum, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsEnum,
+  Min,
+  Max,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { LogLevel } from '../../database/entities/execution-log.entity';
@@ -24,11 +31,11 @@ export class LogQueryDto {
   @Type(() => Date)
   endTime?: Date;
 
-  @ApiPropertyOptional({ 
-    description: 'Number of logs to return per page', 
+  @ApiPropertyOptional({
+    description: 'Number of logs to return per page',
     minimum: 1,
     maximum: 1000,
-    default: 100
+    default: 100,
   })
   @IsOptional()
   @IsNumber()
@@ -37,10 +44,10 @@ export class LogQueryDto {
   @Max(1000)
   limit?: number = 100;
 
-  @ApiPropertyOptional({ 
-    description: 'Page number for pagination', 
+  @ApiPropertyOptional({
+    description: 'Page number for pagination',
     minimum: 1,
-    default: 1
+    default: 1,
   })
   @IsOptional()
   @IsNumber()
@@ -48,16 +55,18 @@ export class LogQueryDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ 
-    description: 'Sort order for logs', 
+  @ApiPropertyOptional({
+    description: 'Sort order for logs',
     enum: ['asc', 'desc'],
-    default: 'desc'
+    default: 'desc',
   })
   @IsOptional()
   @IsString()
   sortOrder?: 'asc' | 'desc' = 'desc';
 
-  @ApiPropertyOptional({ description: 'Filter by source (e.g., function name, module)' })
+  @ApiPropertyOptional({
+    description: 'Filter by source (e.g., function name, module)',
+  })
   @IsOptional()
   @IsString()
   source?: string;

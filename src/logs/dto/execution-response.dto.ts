@@ -1,5 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ExecutionStatus, ExecutionType } from '../../database/entities/execution.entity';
+import {
+  ExecutionStatus,
+  ExecutionType,
+} from '../../database/entities/execution.entity';
 import { ExecutionLog } from '../../database/entities/execution-log.entity';
 
 export class ExecutionResponseDto {

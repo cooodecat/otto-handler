@@ -30,7 +30,10 @@ import { ExecutionResponseDto } from './dto/execution-response.dto';
 import { LogQueryDto } from './dto/log-query.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import type { IRequestType } from '../common/type';
-import { ExecutionStatus, ExecutionType } from '../database/entities/execution.entity';
+import {
+  ExecutionStatus,
+  ExecutionType,
+} from '../database/entities/execution.entity';
 
 @ApiTags('logs')
 @Controller('logs')
@@ -114,7 +117,9 @@ export class LogsController {
       offset,
     });
 
-    return executions.map(execution => this.mapToExecutionResponse(execution));
+    return executions.map((execution) =>
+      this.mapToExecutionResponse(execution),
+    );
   }
 
   @Get('executions/:id')
@@ -137,7 +142,7 @@ export class LogsController {
       if (!id || !id.match(/^[0-9a-f-]+$/i)) {
         throw new BadRequestException('Invalid execution ID format');
       }
-      
+
       const execution = await this.logsService.getExecutionById(
         id,
         req.user.userId,
@@ -165,11 +170,8 @@ export class LogsController {
     @Query() query: LogQueryDto,
     @Request() req: IRequestType,
   ): Promise<any> {
-    const hasAccess = await this.logsService.checkAccess(
-      req.user.userId,
-      id,
-    );
-    
+    const hasAccess = await this.logsService.checkAccess(req.user.userId, id);
+
     if (!hasAccess) {
       return {
         logs: [],
@@ -212,10 +214,7 @@ export class LogsController {
     @Body() dto: UpdateStatusDto,
     @Request() req: IRequestType,
   ): Promise<any> {
-    const hasAccess = await this.logsService.checkAccess(
-      req.user.userId,
-      id,
-    );
+    const hasAccess = await this.logsService.checkAccess(req.user.userId, id);
 
     if (!hasAccess) {
       return {
@@ -224,16 +223,12 @@ export class LogsController {
       };
     }
 
-    await this.logsService.updateExecutionStatus(
-      id,
-      dto.status,
-      {
-        ...dto.metadata,
-        errorMessage: dto.errorMessage,
-        archiveUrl: dto.archiveUrl,
-        completedAt: dto.completedAt,
-      },
-    );
+    await this.logsService.updateExecutionStatus(id, dto.status, {
+      ...dto.metadata,
+      errorMessage: dto.errorMessage,
+      archiveUrl: dto.archiveUrl,
+      completedAt: dto.completedAt,
+    });
 
     return {
       success: true,
