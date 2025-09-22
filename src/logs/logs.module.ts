@@ -9,7 +9,7 @@ import { ExecutionLog } from '../database/entities/execution-log.entity';
 import { ExecutionArchive } from '../database/entities/execution-archive.entity';
 import { Project } from '../database/entities/project.entity';
 import { User } from '../database/entities/user.entity';
-import { LogsGateway } from './logs/logs.gateway';
+import { LogsGateway } from './logs.gateway';
 
 @Module({
   imports: [
