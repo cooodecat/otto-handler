@@ -33,19 +33,22 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleConnection(client: Socket): Promise<void> {
     // JWT 토큰 검증
-    const token = client.handshake.auth.token;
+    const token = client.handshake.auth.token as string;
     try {
-      const user = await this.validateToken(token);
+      const user = this.validateToken(token);
       if (!user) {
         this.logger.warn(`Invalid token for client ${client.id}`);
         client.disconnect();
         return;
       }
-      
+
       client.data.userId = user.userId;
       this.logger.log(`Client connected: ${client.id}, User: ${user.userId}`);
     } catch (error) {
-      this.logger.error(`Authentication failed for client ${client.id}:`, error);
+      this.logger.error(
+        `Authentication failed for client ${client.id}:`,
+        error,
+      );
       client.disconnect();
     }
   }
@@ -61,7 +64,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<void> {
     try {
       const { executionId } = payload;
-      const userId = client.data.userId;
+      const userId = client.data.userId as string;
 
       if (!userId) {
         client.emit('error', { message: 'Unauthorized', code: 'UNAUTHORIZED' });
@@ -69,20 +72,28 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       if (!executionId) {
-        client.emit('error', { message: 'Execution ID is required', code: 'INVALID_PAYLOAD' });
+        client.emit('error', {
+          message: 'Execution ID is required',
+          code: 'INVALID_PAYLOAD',
+        });
         return;
       }
 
       // 권한 확인
       const hasAccess = await this.logsService.checkAccess(userId, executionId);
       if (!hasAccess) {
-        client.emit('error', { message: 'Access denied to this execution', code: 'ACCESS_DENIED' });
+        client.emit('error', {
+          message: 'Access denied to this execution',
+          code: 'ACCESS_DENIED',
+        });
         return;
       }
 
       // Room 참가
       await client.join(`execution:${executionId}`);
-      this.logger.log(`Client ${client.id} joined room execution:${executionId}`);
+      this.logger.log(
+        `Client ${client.id} joined room execution:${executionId}`,
+      );
 
       // 버퍼된 로그 즉시 전송
       const bufferedLogs = this.logBuffer.getRecentLogs(executionId);
@@ -91,17 +102,23 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // DB에서 이전 로그 로드
-      const historicalLogs = await this.logsService.getHistoricalLogs(executionId, 1000);
+      const historicalLogs = await this.logsService.getHistoricalLogs(
+        executionId,
+        1000,
+      );
       if (historicalLogs.length > 0) {
         client.emit('logs:historical', historicalLogs);
       }
 
       client.emit('subscribed', { executionId });
     } catch (error) {
-      this.logger.error(`Error in handleSubscribe for client ${client.id}:`, error);
-      client.emit('error', { 
-        message: 'Failed to subscribe to execution logs', 
-        code: 'SUBSCRIBE_FAILED' 
+      this.logger.error(
+        `Error in handleSubscribe for client ${client.id}:`,
+        error,
+      );
+      client.emit('error', {
+        message: 'Failed to subscribe to execution logs',
+        code: 'SUBSCRIBE_FAILED',
       });
     }
   }
@@ -120,22 +137,32 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // CloudWatch에서 새 로그 수신 시 호출
   broadcastLogs(executionId: string, logs: any[]): void {
     this.server.to(`execution:${executionId}`).emit('logs:new', logs);
-    this.logger.debug(`Broadcasted ${logs.length} logs to execution:${executionId}`);
+    this.logger.debug(
+      `Broadcasted ${logs.length} logs to execution:${executionId}`,
+    );
   }
 
   // 실행 상태 변경 알림
   broadcastStatusChange(executionId: string, status: string): void {
-    this.server.to(`execution:${executionId}`).emit('status:changed', { executionId, status });
-    this.logger.log(`Broadcasted status change to execution:${executionId}: ${status}`);
+    this.server
+      .to(`execution:${executionId}`)
+      .emit('status:changed', { executionId, status });
+    this.logger.log(
+      `Broadcasted status change to execution:${executionId}: ${status}`,
+    );
   }
 
   // 실행 완료 알림
   broadcastExecutionComplete(executionId: string, status: string): void {
-    this.server.to(`execution:${executionId}`).emit('execution:complete', { executionId, status });
-    this.logger.log(`Broadcasted execution complete to execution:${executionId}: ${status}`);
+    this.server
+      .to(`execution:${executionId}`)
+      .emit('execution:complete', { executionId, status });
+    this.logger.log(
+      `Broadcasted execution complete to execution:${executionId}: ${status}`,
+    );
   }
 
-  private async validateToken(token: string): Promise<any> {
+  private validateToken(token: string): { userId: string } | null {
     if (!token) {
       return null;
     }
