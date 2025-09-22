@@ -60,7 +60,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
-      const decoded = this.jwtService.decode(token);
+      const decoded = this.jwtService.decode<{ userId: string }>(token);
       if (!decoded || !decoded.userId) {
         return null;
       }
