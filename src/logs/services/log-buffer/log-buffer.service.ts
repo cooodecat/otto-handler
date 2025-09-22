@@ -61,9 +61,9 @@ export class LogBufferService {
 
     const buffer = this.buffers.get(executionId)!;
     logs.forEach((log) => buffer.push(log));
-    
+
     this.logger.debug(
-      `Added ${logs.length} logs to buffer for execution ${executionId}. Buffer size: ${buffer.getSize()}`
+      `Added ${logs.length} logs to buffer for execution ${executionId}. Buffer size: ${buffer.getSize()}`,
     );
   }
 
@@ -75,11 +75,11 @@ export class LogBufferService {
     }
 
     const logs = buffer.toArray();
-    
+
     if (limit && limit > 0) {
       return logs.slice(-limit);
     }
-    
+
     return logs;
   }
 
@@ -88,19 +88,21 @@ export class LogBufferService {
     if (buffer) {
       buffer.clear();
       this.buffers.delete(executionId);
-      this.logger.log(`Cleared and removed buffer for execution ${executionId}`);
+      this.logger.log(
+        `Cleared and removed buffer for execution ${executionId}`,
+      );
     }
   }
 
   clearAllBuffers(): void {
     const executionIds = Array.from(this.buffers.keys());
-    executionIds.forEach(executionId => this.clearBuffer(executionId));
+    executionIds.forEach((executionId) => this.clearBuffer(executionId));
     this.logger.log(`Cleared all ${executionIds.length} buffers`);
   }
 
   getBufferStats(): { executionId: string; size: number; isFull: boolean }[] {
     const stats: { executionId: string; size: number; isFull: boolean }[] = [];
-    
+
     this.buffers.forEach((buffer, executionId) => {
       stats.push({
         executionId,
@@ -108,13 +110,13 @@ export class LogBufferService {
         isFull: buffer.isFull(),
       });
     });
-    
+
     return stats;
   }
 
   getTotalBufferedLogs(): number {
     let total = 0;
-    this.buffers.forEach(buffer => {
+    this.buffers.forEach((buffer) => {
       total += buffer.getSize();
     });
     return total;

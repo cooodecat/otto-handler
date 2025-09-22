@@ -101,9 +101,16 @@ describe('LogsGateway', () => {
 
       await gateway.handleSubscribe(mockSocket, payload);
 
-      expect(logsService.checkAccess).toHaveBeenCalledWith('test-user-id', 'test-execution-id');
-      expect(mockSocket.join).toHaveBeenCalledWith('execution:test-execution-id');
-      expect(mockSocket.emit).toHaveBeenCalledWith('subscribed', { executionId: 'test-execution-id' });
+      expect(logsService.checkAccess).toHaveBeenCalledWith(
+        'test-user-id',
+        'test-execution-id',
+      );
+      expect(mockSocket.join).toHaveBeenCalledWith(
+        'execution:test-execution-id',
+      );
+      expect(mockSocket.emit).toHaveBeenCalledWith('subscribed', {
+        executionId: 'test-execution-id',
+      });
     });
 
     it('should emit error for unauthorized access', async () => {
@@ -130,8 +137,14 @@ describe('LogsGateway', () => {
 
       await gateway.handleSubscribe(mockSocket, payload);
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('logs:buffered', bufferedLogs);
-      expect(mockSocket.emit).toHaveBeenCalledWith('logs:historical', historicalLogs);
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'logs:buffered',
+        bufferedLogs,
+      );
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'logs:historical',
+        historicalLogs,
+      );
     });
   });
 
@@ -141,8 +154,12 @@ describe('LogsGateway', () => {
 
       await gateway.handleUnsubscribe(mockSocket, payload);
 
-      expect(mockSocket.leave).toHaveBeenCalledWith('execution:test-execution-id');
-      expect(mockSocket.emit).toHaveBeenCalledWith('unsubscribed', { executionId: 'test-execution-id' });
+      expect(mockSocket.leave).toHaveBeenCalledWith(
+        'execution:test-execution-id',
+      );
+      expect(mockSocket.emit).toHaveBeenCalledWith('unsubscribed', {
+        executionId: 'test-execution-id',
+      });
     });
   });
 
@@ -166,7 +183,10 @@ describe('LogsGateway', () => {
       gateway.broadcastStatusChange(executionId, status);
 
       expect(mockServer.to).toHaveBeenCalledWith('execution:test-execution-id');
-      expect(mockServer.emit).toHaveBeenCalledWith('status:changed', { executionId, status });
+      expect(mockServer.emit).toHaveBeenCalledWith('status:changed', {
+        executionId,
+        status,
+      });
     });
   });
 
@@ -178,7 +198,10 @@ describe('LogsGateway', () => {
       gateway.broadcastExecutionComplete(executionId, status);
 
       expect(mockServer.to).toHaveBeenCalledWith('execution:test-execution-id');
-      expect(mockServer.emit).toHaveBeenCalledWith('execution:complete', { executionId, status });
+      expect(mockServer.emit).toHaveBeenCalledWith('execution:complete', {
+        executionId,
+        status,
+      });
     });
   });
 });
