@@ -26,6 +26,9 @@ export class MockStrategy implements DataStrategy {
   }
 
   async fetchLogData(executionId: string): Promise<ExecutionLog[]> {
+    const mockExecution = new Execution();
+    mockExecution.executionId = executionId;
+    
     return [
       {
         id: 1,
@@ -35,7 +38,7 @@ export class MockStrategy implements DataStrategy {
         level: 'info' as any,
         metadata: { source: 'mock' },
         createdAt: new Date(),
-        execution: null,
+        execution: mockExecution,
       },
       {
         id: 2,
@@ -45,7 +48,7 @@ export class MockStrategy implements DataStrategy {
         level: 'warning' as any,
         metadata: { source: 'mock' },
         createdAt: new Date(),
-        execution: null,
+        execution: mockExecution,
       },
     ];
   }

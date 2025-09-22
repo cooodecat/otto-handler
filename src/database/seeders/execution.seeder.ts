@@ -3,7 +3,7 @@ import { Execution, ExecutionStatus, ExecutionType } from '../entities/execution
 import { User } from '../entities/user.entity';
 import { Pipeline } from '../entities/pipeline.entity';
 import { Project, ProjectStatus } from '../entities/project.entity';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 export class ExecutionSeeder {
   constructor(private dataSource: DataSource) {}
@@ -28,10 +28,10 @@ export class ExecutionSeeder {
 
     if (!user) {
       user = userRepository.create({
-        userId: uuidv4(),
+        userId: randomUUID(),
         email: 'test@example.com',
         githubUserName: 'testuser',
-        githubId: '123456',
+        githubId: 123456,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -45,7 +45,7 @@ export class ExecutionSeeder {
 
     if (!project) {
       project = projectRepository.create({
-        projectId: uuidv4(),
+        projectId: randomUUID(),
         userId: user.userId,
         projectName: 'Test Project',
         projectDescription: 'Test project for seeding',
@@ -69,16 +69,18 @@ export class ExecutionSeeder {
 
     if (!pipeline) {
       pipeline = pipelineRepository.create({
-        pipelineId: uuidv4(),
+        pipelineId: randomUUID(),
         projectId: project.projectId,
         pipelineName: 'Test Pipeline',
-        pipelineDescription: 'Test pipeline for seeding',
-        buildCommand: 'npm run build',
-        deployCommand: 'npm run deploy',
-        environmentVariables: JSON.stringify([
-          { key: 'NODE_ENV', value: 'production' },
-          { key: 'API_URL', value: 'https://api.example.com' },
-        ]),
+        data: {
+          description: 'Test pipeline for seeding',
+          buildCommand: 'npm run build',
+          deployCommand: 'npm run deploy',
+          environmentVariables: [
+            { key: 'NODE_ENV', value: 'production' },
+            { key: 'API_URL', value: 'https://api.example.com' },
+          ],
+        },
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -88,7 +90,7 @@ export class ExecutionSeeder {
     // Create sample executions
     const executions = [
       {
-        executionId: uuidv4(),
+        executionId: randomUUID(),
         pipelineId: pipeline.pipelineId,
         projectId: project.projectId,
         userId: user.userId,
@@ -107,7 +109,7 @@ export class ExecutionSeeder {
         isArchived: false,
       },
       {
-        executionId: uuidv4(),
+        executionId: randomUUID(),
         pipelineId: pipeline.pipelineId,
         projectId: project.projectId,
         userId: user.userId,
@@ -124,7 +126,7 @@ export class ExecutionSeeder {
         isArchived: false,
       },
       {
-        executionId: uuidv4(),
+        executionId: randomUUID(),
         pipelineId: pipeline.pipelineId,
         projectId: project.projectId,
         userId: user.userId,
@@ -144,7 +146,7 @@ export class ExecutionSeeder {
         archiveUrl: 's3://test-bucket/archives/test-build-003.tar.gz',
       },
       {
-        executionId: uuidv4(),
+        executionId: randomUUID(),
         pipelineId: pipeline.pipelineId,
         projectId: project.projectId,
         userId: user.userId,

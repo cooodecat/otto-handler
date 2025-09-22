@@ -29,7 +29,7 @@ import { RegisterExecutionDto } from './dto/register-execution.dto';
 import { ExecutionResponseDto } from './dto/execution-response.dto';
 import { LogQueryDto } from './dto/log-query.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
-import { IRequestType } from '../common/type';
+import type { IRequestType } from '../common/type';
 import { ExecutionStatus, ExecutionType } from '../database/entities/execution.entity';
 
 @ApiTags('logs')
@@ -105,7 +105,7 @@ export class LogsController {
     @Request() req?: IRequestType,
   ): Promise<ExecutionResponseDto[]> {
     const executions = await this.logsService.getExecutions({
-      userId: req.user.userId,
+      userId: req?.user?.userId,
       status,
       executionType,
       pipelineId,
@@ -178,8 +178,8 @@ export class LogsController {
     }
 
     const logs = await this.logsService.getExecutionLogs(id, {
-      limit: query.limit,
-      offset: (query.page - 1) * query.limit,
+      limit: query.limit || 100,
+      offset: ((query.page || 1) - 1) * (query.limit || 100),
       level: query.level,
     });
 

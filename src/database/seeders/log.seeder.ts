@@ -81,7 +81,7 @@ export class LogSeeder {
       },
     };
 
-    const logsToCreate = [];
+    const logsToCreate: ExecutionLog[] = [];
 
     for (const execution of executions) {
       const type = execution.executionType.toLowerCase();
@@ -147,8 +147,10 @@ export class LogSeeder {
       }
     }
 
-    // Save all logs
-    await logRepository.save(logsToCreate);
+    // Save all logs in batches to avoid type issues
+    if (logsToCreate.length > 0) {
+      await logRepository.save(logsToCreate);
+    }
     console.log(`✅ Seeded ${logsToCreate.length} logs for ${executions.length} executions`);
   }
 }
