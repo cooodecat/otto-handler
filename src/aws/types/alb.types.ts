@@ -99,7 +99,7 @@ export interface ListenerAction {
     host?: string;
     path?: string;
     query?: string;
-    statusCode: RedirectActionStatusCodeEnum | string;
+    statusCode: RedirectActionStatusCodeEnum;
   };
   /** 고정 응답 설정 (fixed-response 액션의 경우) */
   fixedResponseConfig?: {

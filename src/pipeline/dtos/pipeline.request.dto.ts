@@ -1,5 +1,3 @@
-import { Column } from 'typeorm';
-
 export interface CreatePipelineRequestDto {
   /**
    * 프로젝트 ID

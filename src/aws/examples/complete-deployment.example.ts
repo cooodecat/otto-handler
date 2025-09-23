@@ -47,7 +47,7 @@ export class CompleteDeploymentExample {
       try {
         await this.ecsService.createCluster({ clusterName });
         console.log(`✅ ECS 클러스터 생성: ${clusterName}`);
-      } catch (error) {
+      } catch {
         console.log(`ℹ️ ECS 클러스터 이미 존재: ${clusterName}`);
       }
 

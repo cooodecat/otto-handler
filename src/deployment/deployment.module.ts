@@ -5,10 +5,7 @@ import { Pipeline } from '../database/entities/pipeline.entity';
 import { AwsModule } from '../aws/aws.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Pipeline]),
-    AwsModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Pipeline]), AwsModule],
   providers: [DeploymentService],
   exports: [DeploymentService],
 })
