@@ -5,6 +5,8 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
 import { LogStorageService } from './services/log-storage/log-storage.service';
 import { LogsService } from './logs.service';
 import { LogsController } from './logs.controller';
+import { EventBridgeController } from './eventbridge.controller';
+import { EventBridgeService } from './eventbridge.service';
 import { Execution } from '../database/entities/execution.entity';
 import { ExecutionLog } from '../database/entities/execution-log.entity';
 import { ExecutionArchive } from '../database/entities/execution-archive.entity';
@@ -14,6 +16,7 @@ import { Pipeline } from '../database/entities/pipeline.entity';
 import { LogsGateway } from './logs.gateway';
 import { JwtService } from '../auth/jwt.service';
 import { TestLogsController } from './test-logs.controller';
+import { RedisModule } from '../common/redis/redis.module';
 
 @Module({
   imports: [
@@ -25,8 +28,9 @@ import { TestLogsController } from './test-logs.controller';
       User,
       Pipeline,
     ]),
+    RedisModule,
   ],
-  controllers: [LogsController, TestLogsController],
+  controllers: [LogsController, TestLogsController, EventBridgeController],
   providers: [
     CloudwatchService,
     LogBufferService,
@@ -34,12 +38,14 @@ import { TestLogsController } from './test-logs.controller';
     LogsService,
     LogsGateway,
     JwtService,
+    EventBridgeService,
   ],
   exports: [
     CloudwatchService,
     LogBufferService,
     LogStorageService,
     LogsService,
+    EventBridgeService,
   ],
 })
 export class LogsModule {}
