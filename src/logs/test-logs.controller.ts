@@ -43,11 +43,8 @@ export class TestLogsController {
       level: dto.level || 'info',
     };
 
-    // Add to buffer
+    // Add to buffer (this will also trigger WebSocket broadcast via event emitter)
     this.logBuffer.addLogs(executionId, [log]);
-
-    // Broadcast to connected clients
-    this.logsGateway.broadcastLogs(executionId, [log]);
 
     return {
       success: true,
@@ -80,17 +77,15 @@ export class TestLogsController {
       if (dto.delay && dto.delay > 0) {
         const logCopy = { ...log };
         setTimeout(() => {
-          this.logsGateway.broadcastLogs(executionId, [logCopy]);
+          // Add to buffer, which will trigger broadcast
+          this.logBuffer.addLogs(executionId, [logCopy]);
         }, i * dto.delay);
       }
     }
 
-    // Add all logs to buffer
-    this.logBuffer.addLogs(executionId, logs as LogEntry[]);
-
-    // If no delay, send all at once
+    // If no delay, add all logs to buffer at once (this will trigger broadcast)
     if (!dto.delay || dto.delay === 0) {
-      this.logsGateway.broadcastLogs(executionId, logs);
+      this.logBuffer.addLogs(executionId, logs as LogEntry[]);
     }
 
     return {

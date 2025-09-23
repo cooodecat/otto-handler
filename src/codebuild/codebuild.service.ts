@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import {
   CodeBuildClient,
   CreateProjectCommand,
@@ -12,6 +14,8 @@ import { BuildSpecGeneratorService } from './buildspec-generator.service';
 import { ECRService } from './ecr.service';
 import { EventBridgeService } from './eventbridge.service';
 import { CloudWatchLogsService } from './cloudwatch-logs.service';
+import { Execution } from '../database/entities/execution.entity';
+import { ExecutionType, ExecutionStatus } from '../database/entities/execution.entity';
 
 // Flow 노드 타입 (frontend와 동일)
 interface AnyCICDNodeData {
@@ -30,6 +34,8 @@ export class CodeBuildService {
   private readonly stsClient: STSClient;
 
   constructor(
+    @InjectRepository(Execution)
+    private readonly executionRepository: Repository<Execution>,
     private readonly buildSpecGenerator: BuildSpecGeneratorService,
     private readonly ecrService: ECRService,
     private readonly eventBridgeService: EventBridgeService,
@@ -269,6 +275,15 @@ export class CodeBuildService {
           name: 'EXECUTION_TIMESTAMP',
           value: new Date().toISOString(),
         },
+        // EventBridge 이벤트에서 사용할 메타데이터
+        {
+          name: 'OTTO_USER_ID',
+          value: config.userId,
+        },
+        {
+          name: 'OTTO_PROJECT_ID',
+          value: config.projectId,
+        },
       ];
 
       const startBuildResult = await this.codeBuildClient.send(
@@ -331,6 +346,42 @@ export class CodeBuildService {
       this.logger.log(`Build started successfully: ${buildId}`);
       this.logger.log(`Build number extracted: ${buildNumber}`);
       this.logger.log(`Image tag generated: ${imageTag}`);
+
+      // EventBridge 모드에서 execution 레코드 생성
+      // (EventBridge IN_PROGRESS 이벤트가 오기 전에 생성)
+      if (process.env.USE_EVENTBRIDGE === 'true') {
+        try {
+          const executionId = buildId.split(':')[1]; // UUID 부분 사용
+          const logStreamName = executionId; // CloudWatch 로그 스트림명
+          
+          const execution = this.executionRepository.create({
+            executionId: executionId,
+            executionType: ExecutionType.BUILD,
+            status: ExecutionStatus.RUNNING,
+            awsBuildId: buildId,
+            projectId: config.projectId,
+            pipelineId: config.pipelineId || '',
+            userId: config.userId,
+            logStreamName: logStreamName, // CloudWatch 로그 스트림명 설정
+            startedAt: new Date(),
+            metadata: {
+              source: 'otto-ui',
+              buildNumber,
+              imageTag,
+              projectName: config.projectName,
+            },
+          });
+          
+          await this.executionRepository.save(execution);
+          this.logger.log(`Created execution record ${executionId} for build ${buildId} with logStream ${logStreamName}`);
+          
+          // CloudWatch 폴링은 EventBridge IN_PROGRESS 이벤트에서 시작됨
+          // 여기서는 execution 레코드만 생성
+        } catch (error) {
+          this.logger.error(`Failed to create execution record: ${error.message}`);
+          // execution 생성 실패해도 빌드는 계속 진행
+        }
+      }
 
       return {
         buildId,

@@ -18,6 +18,24 @@ export const handler = async (
   console.log('Received EventBridge event:', JSON.stringify(event, null, 2));
 
   try {
+    // 1. 먼저 중복 체크
+    const checkResult = await sendToBackend('/api/v1/events/check', {
+      eventId: event.id,
+    });
+
+    if (checkResult.isDuplicate) {
+      console.log(`Event ${event.id} is duplicate, skipping`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          message: 'Duplicate event ignored',
+          eventId: event.id,
+        }),
+      };
+    }
+
+    // 2. 새 이벤트라면 처리
     const eventPayload = {
       id: event.id,
       version: event.version,

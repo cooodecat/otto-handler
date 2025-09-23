@@ -44,6 +44,15 @@ export class ExecutionLog {
   })
   level: LogLevel;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  phase?: string; // BUILD, TEST, DEPLOY, etc.
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  step?: string; // Specific step name within phase
+
+  @Column({ type: 'int', nullable: true })
+  stepOrder?: number; // Order of step for sorting
+
   @Column({ type: 'jsonb', nullable: true })
   metadata?: any;
 

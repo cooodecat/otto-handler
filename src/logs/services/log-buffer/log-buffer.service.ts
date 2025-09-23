@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 interface LogEntry {
   executionId: string;
@@ -53,6 +54,8 @@ export class LogBufferService {
   private buffers = new Map<string, CircularBuffer<LogEntry>>();
   private readonly defaultBufferSize = 1000;
 
+  constructor(private eventEmitter: EventEmitter2) {}
+
   addLogs(executionId: string, logs: LogEntry[]): void {
     if (!this.buffers.has(executionId)) {
       this.buffers.set(executionId, new CircularBuffer(this.defaultBufferSize));
@@ -65,6 +68,9 @@ export class LogBufferService {
     this.logger.debug(
       `Added ${logs.length} logs to buffer for execution ${executionId}. Buffer size: ${buffer.getSize()}`,
     );
+    
+    // Emit event for WebSocket broadcasting
+    this.eventEmitter.emit('logs.new', { executionId, logs });
   }
 
   getRecentLogs(executionId: string, limit?: number): LogEntry[] {
