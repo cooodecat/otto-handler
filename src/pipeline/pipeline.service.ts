@@ -145,6 +145,16 @@ export class PipelineService {
       pipeline.deployOption = updatePipelineDto.deployOption;
     }
 
+    // env 필드 업데이트 (환경변수)
+    if (updatePipelineDto.env !== undefined) {
+      pipeline.env = updatePipelineDto.env;
+    }
+
+    // deployOption 필드 업데이트 (포트, 명령어)
+    if (updatePipelineDto.deployOption !== undefined) {
+      pipeline.deployOption = updatePipelineDto.deployOption;
+    }
+
     const updatedPipeline = await this.pipelineRepository.save(pipeline);
 
     this.logger.log(`Pipeline updated: ${pipelineId}`);
