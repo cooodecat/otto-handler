@@ -57,14 +57,18 @@ export class CloudWatchLogsService {
       // 이미 존재하는 경우는 무시
       if (
         error instanceof ResourceAlreadyExistsException ||
-        error.name === 'ResourceAlreadyExistsException'
+        (error as Error).name === 'ResourceAlreadyExistsException'
       ) {
         this.logger.log(`Log group already exists: ${logGroupName}`);
         return;
       }
 
-      this.logger.error(`Failed to create log group: ${error.message}`);
-      throw new Error(`CloudWatch 로그 그룹 생성 실패: ${error.message}`);
+      this.logger.error(
+        `Failed to create log group: ${(error as Error).message}`,
+      );
+      throw new Error(
+        `CloudWatch 로그 그룹 생성 실패: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -82,12 +86,14 @@ export class CloudWatchLogsService {
       this.logger.log(`CloudWatch log group deleted: ${logGroupName}`);
     } catch (error) {
       // 존재하지 않는 경우는 무시
-      if (error.name === 'ResourceNotFoundException') {
+      if ((error as Error).name === 'ResourceNotFoundException') {
         this.logger.warn(`Log group not found for deletion: ${logGroupName}`);
         return;
       }
 
-      this.logger.error(`Failed to delete log group: ${error.message}`);
+      this.logger.error(
+        `Failed to delete log group: ${(error as Error).message}`,
+      );
       throw error;
     }
   }

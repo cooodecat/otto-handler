@@ -45,8 +45,7 @@ export class PipelineService {
     const pipeline = this.pipelineRepository.create({
       projectId: createPipelineDto.projectId,
       pipelineName: createPipelineDto.pipelineName,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      data: createPipelineDto.data,
+      data: createPipelineDto.data as object,
     });
 
     const savedPipeline = await this.pipelineRepository.save(pipeline);
@@ -131,8 +130,7 @@ export class PipelineService {
     }
 
     if (updatePipelineDto.data !== undefined) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      pipeline.data = updatePipelineDto.data;
+      pipeline.data = updatePipelineDto.data as object;
     }
 
     const updatedPipeline = await this.pipelineRepository.save(pipeline);
@@ -216,7 +214,8 @@ export class PipelineService {
     );
 
     // 파이프라인 data에서 flowNodes 추출
-    const flowNodes = pipeline.data?.flowNodes || [];
+    const flowNodes =
+      (pipeline.data as { flowNodes?: unknown[] })?.flowNodes || [];
     this.logger.log(
       `Flow nodes from pipeline: ${JSON.stringify(flowNodes, null, 2)}`,
     );
@@ -227,7 +226,7 @@ export class PipelineService {
       userId: project.userId,
       projectId: project.projectId,
       pipelineId: pipelineId,
-      flowNodes: flowNodes,
+      flowNodes: flowNodes as any[],
     });
 
     // ECR 이미지 URI 생성
@@ -300,8 +299,7 @@ export class PipelineService {
       pipelineId: pipeline.pipelineId,
       projectId: pipeline.projectId,
       pipelineName: pipeline.pipelineName,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      data: pipeline.data,
+      data: pipeline.data as object,
       ecrImageUri: pipeline.ecrImageUri,
       imageTag: pipeline.imageTag,
       createdAt: pipeline.createdAt,

@@ -3,7 +3,6 @@ import {
   ECRClient,
   CreateRepositoryCommand,
   DescribeRepositoriesCommand,
-  Repository,
 } from '@aws-sdk/client-ecr';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 
@@ -68,10 +67,13 @@ export class ECRService {
           registryId: repository.registryId!,
         };
       }
-    } catch (error) {
+    } catch (error: unknown) {
       // Repository가 없으면 RepositoryNotFoundException 발생 - 정상적인 상황
-      if (error.name !== 'RepositoryNotFoundException') {
-        this.logger.error(`Error checking ECR repository: ${error.message}`);
+      const errorObj = error as { name?: string; message?: string };
+      if (errorObj.name !== 'RepositoryNotFoundException') {
+        this.logger.error(
+          `Error checking ECR repository: ${errorObj.message || 'Unknown error'}`,
+        );
         throw error;
       }
     }
@@ -120,9 +122,14 @@ export class ECRService {
         repositoryUri: repository.repositoryUri!,
         registryId: repository.registryId!,
       };
-    } catch (error) {
-      this.logger.error(`Failed to create ECR repository: ${error.message}`);
-      throw new Error(`ECR Repository 생성 실패: ${error.message}`);
+    } catch (error: unknown) {
+      const errorObj = error as { message?: string };
+      this.logger.error(
+        `Failed to create ECR repository: ${errorObj.message || 'Unknown error'}`,
+      );
+      throw new Error(
+        `ECR Repository 생성 실패: ${errorObj.message || 'Unknown error'}`,
+      );
     }
   }
 
@@ -174,8 +181,11 @@ export class ECRService {
       }
 
       return null;
-    } catch (error) {
-      this.logger.error(`Error getting repository URI: ${error.message}`);
+    } catch (error: unknown) {
+      const errorObj = error as { message?: string };
+      this.logger.error(
+        `Error getting repository URI: ${errorObj.message || 'Unknown error'}`,
+      );
       return null;
     }
   }
@@ -189,8 +199,11 @@ export class ECRService {
         new GetCallerIdentityCommand({}),
       );
       return Account!;
-    } catch (error) {
-      this.logger.error(`Failed to get AWS Account ID: ${error.message}`);
+    } catch (error: unknown) {
+      const errorObj = error as { message?: string };
+      this.logger.error(
+        `Failed to get AWS Account ID: ${errorObj.message || 'Unknown error'}`,
+      );
       throw new Error('AWS Account ID 조회 실패');
     }
   }
@@ -210,16 +223,21 @@ export class ECRService {
       );
 
       this.logger.log(`ECR Repository deleted successfully: ${repositoryName}`);
-    } catch (error) {
-      if (error.name === 'RepositoryNotFoundException') {
+    } catch (error: unknown) {
+      const errorObj = error as { name?: string; message?: string };
+      if (errorObj.name === 'RepositoryNotFoundException') {
         this.logger.warn(
           `ECR Repository not found for deletion: ${repositoryName}`,
         );
         return;
       }
 
-      this.logger.error(`Failed to delete ECR repository: ${error.message}`);
-      throw new Error(`ECR Repository 삭제 실패: ${error.message}`);
+      this.logger.error(
+        `Failed to delete ECR repository: ${errorObj.message || 'Unknown error'}`,
+      );
+      throw new Error(
+        `ECR Repository 삭제 실패: ${errorObj.message || 'Unknown error'}`,
+      );
     }
   }
 }

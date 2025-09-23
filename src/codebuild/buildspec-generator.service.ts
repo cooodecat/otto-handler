@@ -84,15 +84,15 @@ export class BuildSpecGeneratorService {
     const nodeVersionNode = flowNodes?.find(
       (node) => node?.blockType === 'node_version',
     );
-    if (nodeVersionNode && nodeVersionNode.version) {
+    if (nodeVersionNode && (nodeVersionNode.version as string)) {
       buildSpec.phases.pre_build.commands.unshift(
         'echo "=== Node.js Setup ==="',
         'echo "Current Node version:"',
         'node --version',
         '# Check if n is installed',
         'which n || npm install -g n',
-        `echo "Installing Node.js ${nodeVersionNode.version}..."`,
-        `n ${nodeVersionNode.version}`,
+        `echo "Installing Node.js ${nodeVersionNode.version as string}..."`,
+        `n ${nodeVersionNode.version as string}`,
         'echo "Updated Node version:"',
         'node --version',
       );
@@ -102,7 +102,7 @@ export class BuildSpecGeneratorService {
     const installNode = flowNodes?.find(
       (node) => node?.blockType === 'install_module_node',
     );
-    const packageManager = installNode?.packageManager || 'npm';
+    const packageManager = (installNode?.packageManager as string) || 'npm';
 
     if (packageManager !== 'npm') {
       buildSpec.phases.pre_build.commands.push(
@@ -225,7 +225,7 @@ export class BuildSpecGeneratorService {
       case 'os_package':
         return this.generateOSPackageCommands(node);
       case 'node_version':
-        return this.generateNodeVersionCommands(node);
+        return this.generateNodeVersionCommands();
       case 'environment_setup':
         return this.generateEnvironmentSetupCommands(node);
       default:
@@ -289,7 +289,7 @@ export class BuildSpecGeneratorService {
 
   private generateOSPackageCommands(node: AnyCICDNodeData): string[] {
     const commands: string[] = [];
-    const packageManager = node.packageManager || 'apt-get';
+    const packageManager = (node.packageManager as string) || 'apt-get';
 
     // 패키지 매니저 타입 확인 및 설치
     if (node.updatePackageList) {
@@ -300,18 +300,26 @@ export class BuildSpecGeneratorService {
       }
     }
 
-    if (node.installPackages && node.installPackages.length > 0) {
+    if (
+      node.installPackages &&
+      Array.isArray(node.installPackages) &&
+      node.installPackages.length > 0
+    ) {
       if (packageManager === 'apt' || packageManager === 'apt-get') {
-        commands.push(`apt-get install -y ${node.installPackages.join(' ')}`);
+        commands.push(
+          `apt-get install -y ${(node.installPackages as string[]).join(' ')}`,
+        );
       } else if (packageManager === 'yum') {
-        commands.push(`yum install -y ${node.installPackages.join(' ')}`);
+        commands.push(
+          `yum install -y ${(node.installPackages as string[]).join(' ')}`,
+        );
       }
     }
 
     return commands;
   }
 
-  private generateNodeVersionCommands(node: AnyCICDNodeData): string[] {
+  private generateNodeVersionCommands(): string[] {
     // node_version 노드는 메인 buildspec에서 처리하므로 비워둠
     // 기존 nvm 명령어는 사용하지 않음 (n 사용)
     return [];
@@ -321,15 +329,19 @@ export class BuildSpecGeneratorService {
     const commands: string[] = [];
 
     if (node.environmentVariables) {
-      for (const [key, value] of Object.entries(node.environmentVariables)) {
+      for (const [key, value] of Object.entries(
+        node.environmentVariables as Record<string, unknown>,
+      )) {
         const envValue =
-          typeof value === 'object' ? (value as any).value : value;
-        commands.push(`export ${key}="${envValue}"`);
+          typeof value === 'object'
+            ? (value as { value: string }).value
+            : value;
+        commands.push(`export ${key}="${envValue as string}"`);
       }
     }
 
     if (node.loadFromFile) {
-      commands.push(`source ${node.loadFromFile}`);
+      commands.push(`source ${node.loadFromFile as string}`);
     }
 
     return commands;
@@ -337,7 +349,7 @@ export class BuildSpecGeneratorService {
 
   private generateInstallPackagesCommands(node: AnyCICDNodeData): string[] {
     const commands: string[] = [];
-    const packageManager = node.packageManager || 'npm';
+    const packageManager = (node.packageManager as string) || 'npm';
 
     // 현재 디렉토리 확인
     commands.push('echo "=== Install Dependencies ==="');
@@ -375,25 +387,25 @@ export class BuildSpecGeneratorService {
 
   private generateWebpackBuildCommands(node: AnyCICDNodeData): string[] {
     const commands: string[] = [];
-    const packageManager = node.packageManager || 'npm';
+    const packageManager = (node.packageManager as string) || 'npm';
 
     // package.json이 있을 때만 실행
     let webpackCmd = '';
     if (node.configFile && node.configFile !== 'webpack.config.js') {
       if (packageManager === 'npm') {
-        webpackCmd = `npx webpack --config ${node.configFile} --mode ${node.mode}`;
+        webpackCmd = `npx webpack --config ${node.configFile as string} --mode ${node.mode as string}`;
       } else if (packageManager === 'pnpm') {
-        webpackCmd = `pnpm exec webpack --config ${node.configFile} --mode ${node.mode}`;
+        webpackCmd = `pnpm exec webpack --config ${node.configFile as string} --mode ${node.mode as string}`;
       } else if (packageManager === 'yarn') {
-        webpackCmd = `yarn webpack --config ${node.configFile} --mode ${node.mode}`;
+        webpackCmd = `yarn webpack --config ${node.configFile as string} --mode ${node.mode as string}`;
       }
     } else {
       if (packageManager === 'npm') {
-        webpackCmd = `npx webpack --mode ${node.mode}`;
+        webpackCmd = `npx webpack --mode ${node.mode as string}`;
       } else if (packageManager === 'pnpm') {
-        webpackCmd = `pnpm exec webpack --mode ${node.mode}`;
+        webpackCmd = `pnpm exec webpack --mode ${node.mode as string}`;
       } else if (packageManager === 'yarn') {
-        webpackCmd = `yarn webpack --mode ${node.mode}`;
+        webpackCmd = `yarn webpack --mode ${node.mode as string}`;
       }
     }
 
@@ -406,7 +418,7 @@ export class BuildSpecGeneratorService {
 
   private generateViteBuildCommands(node: AnyCICDNodeData): string[] {
     const commands: string[] = [];
-    const packageManager = node.packageManager || 'npm';
+    const packageManager = (node.packageManager as string) || 'npm';
 
     // vite 명령어 구성
     let viteCmd = '';
@@ -420,7 +432,7 @@ export class BuildSpecGeneratorService {
 
     if (node.basePath && node.basePath !== '/') {
       commands.push(
-        `if [ -f package.json ]; then echo "Running vite build..."; VITE_BASE_PATH=${node.basePath} ${viteCmd}; else echo "No package.json found, skipping vite build"; fi`,
+        `if [ -f package.json ]; then echo "Running vite build..."; VITE_BASE_PATH=${node.basePath as string} ${viteCmd}; else echo "No package.json found, skipping vite build"; fi`,
       );
     } else {
       commands.push(
@@ -429,7 +441,7 @@ export class BuildSpecGeneratorService {
     }
 
     if (node.outputDir && node.outputDir !== 'dist') {
-      commands.push(`mv ${node.outputDir} dist`);
+      commands.push(`mv ${node.outputDir as string} dist`);
     }
 
     return commands;
@@ -437,18 +449,20 @@ export class BuildSpecGeneratorService {
 
   private generateCustomBuildCommands(node: AnyCICDNodeData): string[] {
     const commands: string[] = [];
-    const packageManager = node.packageManager || 'npm';
+    const packageManager = (node.packageManager as string) || 'npm';
 
     if (node.scriptName) {
-      commands.push(`${packageManager} run ${node.scriptName}`);
+      commands.push(`${packageManager} run ${node.scriptName as string}`);
     }
 
     if (node.customCommands && Array.isArray(node.customCommands)) {
-      commands.push(...node.customCommands);
+      commands.push(...(node.customCommands as string[]));
     }
 
     if (node.workingDirectory && node.workingDirectory !== '.') {
-      return commands.map((cmd) => `cd ${node.workingDirectory} && ${cmd}`);
+      return commands.map(
+        (cmd) => `cd ${node.workingDirectory as string} && ${cmd}`,
+      );
     }
 
     return commands;
@@ -459,7 +473,7 @@ export class BuildSpecGeneratorService {
     let jestCmd = 'npm run test';
 
     if (node.configFile && node.configFile !== 'jest.config.js') {
-      jestCmd += ` --config ${node.configFile}`;
+      jestCmd += ` --config ${node.configFile as string}`;
     }
 
     if (node.coverage) {
@@ -475,7 +489,7 @@ export class BuildSpecGeneratorService {
     let vitestCmd = 'npx vitest run';
 
     if (node.configFile && node.configFile !== 'vitest.config.ts') {
-      vitestCmd += ` --config ${node.configFile}`;
+      vitestCmd += ` --config ${node.configFile as string}`;
     }
 
     if (node.coverage) {
@@ -491,15 +505,15 @@ export class BuildSpecGeneratorService {
     let mochaCmd = 'npx mocha';
 
     if (node.testDir) {
-      mochaCmd += ` ${node.testDir}`;
+      mochaCmd += ` ${node.testDir as string}`;
     }
 
     if (node.reporter) {
-      mochaCmd += ` --reporter ${node.reporter}`;
+      mochaCmd += ` --reporter ${node.reporter as string}`;
     }
 
     if (node.timeout) {
-      mochaCmd += ` --timeout ${node.timeout}`;
+      mochaCmd += ` --timeout ${node.timeout as string}`;
     }
 
     if (node.recursive) {
@@ -515,11 +529,11 @@ export class BuildSpecGeneratorService {
     let playwrightCmd = 'npx playwright test';
 
     if (node.configFile && node.configFile !== 'playwright.config.ts') {
-      playwrightCmd += ` --config ${node.configFile}`;
+      playwrightCmd += ` --config ${node.configFile as string}`;
     }
 
     if (node.browsers && Array.isArray(node.browsers)) {
-      playwrightCmd += ` --project ${node.browsers.join(',')}`;
+      playwrightCmd += ` --project ${(node.browsers as string[]).join(',')}`;
     }
 
     commands.push(playwrightCmd);
@@ -529,11 +543,11 @@ export class BuildSpecGeneratorService {
   private generateCustomTestCommands(node: AnyCICDNodeData): string[] {
     if (node.testCommands && Array.isArray(node.testCommands)) {
       if (node.workingDirectory && node.workingDirectory !== '.') {
-        return node.testCommands.map(
-          (cmd: string) => `cd ${node.workingDirectory} && ${cmd}`,
+        return (node.testCommands as string[]).map(
+          (cmd: string) => `cd ${node.workingDirectory as string} && ${cmd}`,
         );
       }
-      return node.testCommands;
+      return node.testCommands as string[];
     }
     return [];
   }
@@ -543,9 +557,10 @@ export class BuildSpecGeneratorService {
       return [];
     }
 
-    const message = node.messageTemplate || 'Build completed successfully!';
+    const message =
+      (node.messageTemplate as string) || 'Build completed successfully!';
     return [
-      `curl -X POST -H 'Content-type: application/json' --data '{"channel":"${node.channel}","text":"${message}"}' $${node.webhookUrlEnv}`,
+      `curl -X POST -H 'Content-type: application/json' --data '{"channel":"${node.channel as string}","text":"${message}"}' $${node.webhookUrlEnv as string}`,
     ];
   }
 
@@ -554,8 +569,11 @@ export class BuildSpecGeneratorService {
       return [];
     }
 
-    const message = node.messageTemplate || 'Build completed successfully!';
-    return [`echo "${message}" | mail -s "${node.subject}" ${node.recipients}`];
+    const message =
+      (node.messageTemplate as string) || 'Build completed successfully!';
+    return [
+      `echo "${message}" | mail -s "${node.subject as string}" ${node.recipients as string}`,
+    ];
   }
 
   /**
@@ -567,13 +585,13 @@ export class BuildSpecGeneratorService {
     const nodeVersionNode = flowNodes?.find(
       (node) => node?.blockType === 'node_version',
     );
-    const nodeVersion = nodeVersionNode?.version || '20';
+    const nodeVersion = (nodeVersionNode?.version as string) || '20';
 
     // Flow 노드에서 패키지 매니저 찾기 (기본값: npm)
     const installNode = flowNodes?.find(
       (node) => node?.blockType === 'install_module_node',
     );
-    const packageManager = installNode?.packageManager || 'npm';
+    const packageManager = (installNode?.packageManager as string) || 'npm';
 
     // Flow 노드에서 빌드 명령어 찾기
     const buildNode = flowNodes?.find(
@@ -610,8 +628,8 @@ export class BuildSpecGeneratorService {
       case 'build_vite':
         return `${packageManager} run build`;
       case 'build_custom':
-        return buildNode.scriptName
-          ? `${packageManager} run ${buildNode.scriptName}`
+        return (buildNode.scriptName as string)
+          ? `${packageManager} run ${buildNode.scriptName as string}`
           : `${packageManager} run build`;
       default:
         return `${packageManager} run build`;

@@ -87,9 +87,14 @@ export class EventBridgeService {
 
       this.logger.log(`Lambda target added to rule: ${ruleName}`);
       return ruleName;
-    } catch (error) {
-      this.logger.error(`Failed to create EventBridge rule: ${error.message}`);
-      throw new Error(`EventBridge Rule 생성 실패: ${error.message}`);
+    } catch (error: unknown) {
+      const errorObj = error as { message?: string };
+      this.logger.error(
+        `Failed to create EventBridge rule: ${errorObj.message || 'Unknown error'}`,
+      );
+      throw new Error(
+        `EventBridge Rule 생성 실패: ${errorObj.message || 'Unknown error'}`,
+      );
     }
   }
 
@@ -112,10 +117,13 @@ export class EventBridgeService {
           }),
         );
         this.logger.log(`Targets removed from rule: ${ruleName}`);
-      } catch (error) {
+      } catch (error: unknown) {
         // 타겟이 없는 경우는 무시
-        if (error.name !== 'ResourceNotFoundException') {
-          this.logger.warn(`Failed to remove targets: ${error.message}`);
+        const errorObj = error as { name?: string; message?: string };
+        if (errorObj.name !== 'ResourceNotFoundException') {
+          this.logger.warn(
+            `Failed to remove targets: ${errorObj.message || 'Unknown error'}`,
+          );
         }
       }
 
@@ -127,11 +135,12 @@ export class EventBridgeService {
       );
 
       this.logger.log(`EventBridge rule deleted: ${ruleName}`);
-    } catch (error) {
+    } catch (error: unknown) {
       // Rule이 없는 경우는 무시
-      if (error.name !== 'ResourceNotFoundException') {
+      const errorObj = error as { name?: string; message?: string };
+      if (errorObj.name !== 'ResourceNotFoundException') {
         this.logger.error(
-          `Failed to delete EventBridge rule: ${error.message}`,
+          `Failed to delete EventBridge rule: ${errorObj.message || 'Unknown error'}`,
         );
         throw error;
       }
@@ -151,11 +160,12 @@ export class EventBridgeService {
             Ids: ['1'],
           }),
         );
-      } catch (error) {
+      } catch (error: unknown) {
         // 타겟이 없는 경우는 무시
-        if (error.name !== 'ResourceNotFoundException') {
+        const errorObj = error as { name?: string; message?: string };
+        if (errorObj.name !== 'ResourceNotFoundException') {
           this.logger.warn(
-            `Failed to remove targets from ${ruleName}: ${error.message}`,
+            `Failed to remove targets from ${ruleName}: ${errorObj.message || 'Unknown error'}`,
           );
         }
       }
@@ -168,10 +178,11 @@ export class EventBridgeService {
       );
 
       this.logger.log(`EventBridge rule deleted: ${ruleName}`);
-    } catch (error) {
-      if (error.name !== 'ResourceNotFoundException') {
+    } catch (error: unknown) {
+      const errorObj = error as { name?: string; message?: string };
+      if (errorObj.name !== 'ResourceNotFoundException') {
         this.logger.error(
-          `Failed to delete EventBridge rule ${ruleName}: ${error.message}`,
+          `Failed to delete EventBridge rule ${ruleName}: ${errorObj.message || 'Unknown error'}`,
         );
         throw error;
       }

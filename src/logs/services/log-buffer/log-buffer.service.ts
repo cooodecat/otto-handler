@@ -14,7 +14,7 @@ class CircularBuffer<T> {
   private size = 0;
 
   constructor(private capacity: number) {
-    this.buffer = new Array(capacity);
+    this.buffer = new Array<T>(capacity);
   }
 
   push(item: T): void {
@@ -34,7 +34,7 @@ class CircularBuffer<T> {
   }
 
   clear(): void {
-    this.buffer = new Array(this.capacity);
+    this.buffer = new Array<T>(this.capacity);
     this.pointer = 0;
     this.size = 0;
   }
@@ -68,7 +68,7 @@ export class LogBufferService {
     this.logger.debug(
       `Added ${logs.length} logs to buffer for execution ${executionId}. Buffer size: ${buffer.getSize()}`,
     );
-    
+
     // Emit event for WebSocket broadcasting
     this.eventEmitter.emit('logs.new', { executionId, logs });
   }
