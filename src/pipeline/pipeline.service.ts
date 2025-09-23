@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { Project } from '../database/entities/project.entity';
+import { CodeBuildService } from '../codebuild/codebuild.service';
+import { ECRService } from '../codebuild/ecr.service';
 import type {
   CreatePipelineRequestDto,
   UpdatePipelineRequestDto,
@@ -19,6 +21,8 @@ export class PipelineService {
     private readonly pipelineRepository: Repository<Pipeline>,
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    private readonly codeBuildService: CodeBuildService,
+    private readonly ecrService: ECRService,
   ) {}
 
   /**
@@ -175,6 +179,120 @@ export class PipelineService {
   }
 
   /**
+   * 파이프라인 빌드 실행
+   */
+  async executePipeline(
+    pipelineId: string,
+    userId: string,
+  ): Promise<{
+    buildId: string;
+    buildNumber: string;
+    imageTag: string;
+    ecrImageUri: string;
+  }> {
+    // 파이프라인 존재 여부 및 권한 확인
+    const pipeline = await this.pipelineRepository
+      .createQueryBuilder('pipeline')
+      .leftJoinAndSelect('pipeline.project', 'project')
+      .where('pipeline.pipelineId = :pipelineId', { pipelineId })
+      .andWhere('project.userId = :userId', { userId })
+      .getOne();
+
+    if (!pipeline) {
+      throw new NotFoundException('Pipeline not found or access denied');
+    }
+
+    const project = pipeline.project;
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    if (!project.codebuildProjectName) {
+      throw new Error('CodeBuild project not configured for this project');
+    }
+
+    this.logger.log(
+      `Starting build for pipeline: ${pipelineId}, project: ${project.projectId}`,
+    );
+
+    // 파이프라인 data에서 flowNodes 추출
+    const flowNodes = pipeline.data?.flowNodes || [];
+    this.logger.log(
+      `Flow nodes from pipeline: ${JSON.stringify(flowNodes, null, 2)}`,
+    );
+
+    // CodeBuild 빌드 시작 (flowNodes 포함)
+    const buildResult = await this.codeBuildService.startBuild({
+      projectName: project.codebuildProjectName,
+      userId: project.userId,
+      projectId: project.projectId,
+      pipelineId: pipelineId,
+      flowNodes: flowNodes,
+    });
+
+    // ECR 이미지 URI 생성
+    const ecrImageUri = await this.ecrService.generateImageUri({
+      userId: project.userId,
+      projectId: project.projectId,
+      buildNumber: buildResult.buildNumber,
+    });
+
+    this.logger.log(
+      `Build result: buildId=${buildResult.buildId}, buildNumber=${buildResult.buildNumber}`,
+    );
+    this.logger.log(`Generated image tag: ${buildResult.imageTag}`);
+    this.logger.log(`Generated ECR URI: ${ecrImageUri}`);
+
+    // Pipeline에 이미지 정보 업데이트
+    await this.pipelineRepository.update(pipelineId, {
+      ecrImageUri,
+      imageTag: buildResult.imageTag,
+    });
+
+    this.logger.log(`Build started successfully: ${buildResult.buildId}`);
+
+    return {
+      buildId: buildResult.buildId,
+      buildNumber: buildResult.buildNumber,
+      imageTag: buildResult.imageTag,
+      ecrImageUri,
+    };
+  }
+
+  /**
+   * 빌드 상태 조회
+   */
+  async getBuildStatus(
+    pipelineId: string,
+    buildId: string,
+    userId: string,
+  ): Promise<{
+    buildStatus: string;
+    currentPhase?: string;
+    startTime?: Date;
+    endTime?: Date;
+    logs?: {
+      groupName?: string;
+      streamName?: string;
+    };
+  }> {
+    // 파이프라인 권한 확인
+    const pipeline = await this.pipelineRepository
+      .createQueryBuilder('pipeline')
+      .leftJoinAndSelect('pipeline.project', 'project')
+      .where('pipeline.pipelineId = :pipelineId', { pipelineId })
+      .andWhere('project.userId = :userId', { userId })
+      .getOne();
+
+    if (!pipeline) {
+      throw new NotFoundException('Pipeline not found or access denied');
+    }
+
+    // CodeBuild에서 빌드 상태 조회
+    return await this.codeBuildService.getBuildStatus(buildId);
+  }
+
+  /**
    * Entity를 ResponseDto로 변환
    */
   private mapToResponseDto(pipeline: Pipeline): PipelineResponseDto {
@@ -184,6 +302,8 @@ export class PipelineService {
       pipelineName: pipeline.pipelineName,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       data: pipeline.data,
+      ecrImageUri: pipeline.ecrImageUri,
+      imageTag: pipeline.imageTag,
       createdAt: pipeline.createdAt,
       updatedAt: pipeline.updatedAt,
     };

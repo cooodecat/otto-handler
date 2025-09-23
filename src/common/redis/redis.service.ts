@@ -44,20 +44,23 @@ export class RedisService implements OnModuleDestroy {
         timestamp: new Date().toISOString(),
         processed: true,
       });
-      
+
       // SETNX - SET if Not eXists
       const result = await this.client.setnx(key, value);
-      
+
       if (result === 1) {
         // Key was set successfully, now set expiration
         await this.client.expire(key, this.eventTTL);
         return true;
       }
-      
+
       // Key already exists, it's a duplicate
       return false;
     } catch (error) {
-      this.logger.error(`Failed to check duplicate for event ${eventId}:`, error);
+      this.logger.error(
+        `Failed to check duplicate for event ${eventId}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -78,7 +81,7 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
-  async getEventHistory(eventId: string): Promise<any | null> {
+  async getEventHistory(eventId: string): Promise<unknown> {
     try {
       const historyKey = `eventbridge:history:${eventId}`;
       const data = await this.client.get(historyKey);

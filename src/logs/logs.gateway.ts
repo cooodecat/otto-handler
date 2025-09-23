@@ -39,13 +39,13 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly logBuffer: LogBufferService,
   ) {}
 
-  async handleConnection(client: Socket): Promise<void> {
+  handleConnection(client: Socket): void {
     // JWT 토큰 검증 (개발 환경에서는 선택적)
     const token = client.handshake.auth.token as string;
 
     // 개발 환경에서는 토큰이 없어도 허용
     if (process.env.NODE_ENV === 'development' && !token) {
-      client.data.userId = 'dev-user';
+      (client.data as Record<string, unknown>).userId = 'dev-user';
       this.logger.log(`Client connected (dev mode): ${client.id}`);
       return;
     }
@@ -56,7 +56,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.logger.warn(`Invalid token for client ${client.id}`);
         // 개발 환경에서는 토큰 검증 실패해도 연결 허용
         if (process.env.NODE_ENV === 'development') {
-          client.data.userId = 'dev-user-no-auth';
+          (client.data as Record<string, unknown>).userId = 'dev-user-no-auth';
           this.logger.log(`Client connected (dev mode, no auth): ${client.id}`);
           return;
         }
@@ -64,7 +64,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      client.data.userId = user.userId;
+      (client.data as Record<string, unknown>).userId = user.userId;
       this.logger.log(`Client connected: ${client.id}, User: ${user.userId}`);
     } catch (error) {
       this.logger.error(
@@ -73,7 +73,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       // 개발 환경에서는 에러가 있어도 연결 허용
       if (process.env.NODE_ENV === 'development') {
-        client.data.userId = 'dev-user-error';
+        (client.data as Record<string, unknown>).userId = 'dev-user-error';
         this.logger.log(
           `Client connected (dev mode, auth error): ${client.id}`,
         );
@@ -94,7 +94,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<void> {
     try {
       const { executionId } = payload;
-      const userId = client.data.userId as string;
+      const userId = (client.data as Record<string, unknown>).userId as string;
 
       if (!userId) {
         client.emit('error', { message: 'Unauthorized', code: 'UNAUTHORIZED' });

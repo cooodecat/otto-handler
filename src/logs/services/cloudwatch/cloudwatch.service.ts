@@ -77,7 +77,7 @@ export class CloudwatchService {
     const pollInterval = setInterval(async () => {
       try {
         const input: GetLogEventsCommandInput = {
-          logGroupName: project.cloudwatchLogGroup,
+          logGroupName: project.cloudwatchLogGroup || undefined,
           logStreamName: execution.logStreamName,
           nextToken,
           startFromHead: !nextToken,

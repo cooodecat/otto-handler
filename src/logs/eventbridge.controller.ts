@@ -1,13 +1,13 @@
-import { 
-  Controller, 
-  Post, 
-  Body, 
-  HttpCode, 
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
   HttpStatus,
   UseGuards,
   Headers,
   BadRequestException,
-  Logger
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
 import { EventBridgeService } from './eventbridge.service';
@@ -37,7 +37,7 @@ export class EventBridgeController {
     @Body() body: { eventId: string },
   ): Promise<{ isDuplicate: boolean }> {
     this.validateApiKey(apiKey);
-    
+
     if (!body.eventId) {
       throw new BadRequestException('Event ID is required');
     }
@@ -57,38 +57,42 @@ export class EventBridgeController {
     @Body() event: EventBridgeEvent,
   ): Promise<{ success: boolean; message: string }> {
     this.validateApiKey(apiKey);
-    
+
     try {
-      this.logger.log(`Received EventBridge event: ${event.id}, Source: ${event.source}`);
-      
+      this.logger.log(
+        `Received EventBridge event: ${event.id}, Source: ${event.source}`,
+      );
+
       if (!event.id || !event.source || !event.detail) {
         throw new BadRequestException('Invalid event format');
       }
 
       if (event.source !== 'aws.codebuild') {
-        this.logger.warn(`Ignoring non-CodeBuild event from source: ${event.source}`);
-        return { 
-          success: true, 
-          message: `Event from ${event.source} ignored` 
+        this.logger.warn(
+          `Ignoring non-CodeBuild event from source: ${event.source}`,
+        );
+        return {
+          success: true,
+          message: `Event from ${event.source} ignored`,
         };
       }
 
       await this.eventBridgeService.processEvent(event);
-      
-      return { 
-        success: true, 
-        message: 'Event processed successfully' 
+
+      return {
+        success: true,
+        message: 'Event processed successfully',
       };
     } catch (error) {
       this.logger.error('Failed to process event:', error);
-      
+
       if (error instanceof BadRequestException) {
         throw error;
       }
-      
-      return { 
-        success: false, 
-        message: error.message || 'Failed to process event' 
+
+      return {
+        success: false,
+        message: error.message || 'Failed to process event',
       };
     }
   }
@@ -97,9 +101,9 @@ export class EventBridgeController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Test EventBridge endpoint' })
   @ApiResponse({ status: 200, description: 'Test successful' })
-  async test(): Promise<{ 
-    success: boolean; 
-    message: string; 
+  async test(): Promise<{
+    success: boolean;
+    message: string;
     eventBridgeEnabled: boolean;
     timestamp: string;
   }> {

@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedisService } from '../common/redis/redis.service';
 import { LogsGateway } from './logs.gateway';
-import { Execution, ExecutionStatus, ExecutionType } from '../database/entities/execution.entity';
+import {
+  Execution,
+  ExecutionStatus,
+  ExecutionType,
+} from '../database/entities/execution.entity';
 import { LogsService } from './logs.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -28,7 +32,7 @@ export interface CodeBuildDetail {
   'additional-information'?: {
     'build-complete'?: boolean;
     'build-number'?: number;
-    'initiator'?: string;
+    initiator?: string;
     'start-time'?: string;
     'end-time'?: string;
     logs?: {
@@ -52,8 +56,13 @@ export class EventBridgeService {
     @InjectRepository(Execution)
     private executionRepository: Repository<Execution>,
   ) {
-    this.useEventBridge = this.configService.get<boolean>('USE_EVENTBRIDGE', false);
-    this.logger.log(`EventBridge integration: ${this.useEventBridge ? 'Enabled' : 'Disabled'}`);
+    this.useEventBridge = this.configService.get<boolean>(
+      'USE_EVENTBRIDGE',
+      false,
+    );
+    this.logger.log(
+      `EventBridge integration: ${this.useEventBridge ? 'Enabled' : 'Disabled'}`,
+    );
   }
 
   async checkDuplicate(eventId: string): Promise<boolean> {
@@ -64,7 +73,10 @@ export class EventBridgeService {
       }
       return isNew;
     } catch (error) {
-      this.logger.error(`Failed to check duplicate for event ${eventId}:`, error);
+      this.logger.error(
+        `Failed to check duplicate for event ${eventId}:`,
+        error,
+      );
       return true;
     }
   }
@@ -86,16 +98,20 @@ export class EventBridgeService {
       const buildStatus = detail['build-status'];
       const projectName = detail['project-name'];
 
-      this.logger.log(`Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`);
+      this.logger.log(
+        `Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`,
+      );
 
       // buildId로 기존 실행 찾기 - 동일한 빌드의 연속된 이벤트는 같은 execution 사용
       const execution = await this.findExecutionByBuildId(buildId);
-      
+
       if (!execution) {
         if (buildStatus === 'IN_PROGRESS') {
           await this.createNewExecution(buildId, projectName, event);
         } else {
-          this.logger.warn(`No execution found for build ${buildId}, status: ${buildStatus}`);
+          this.logger.warn(
+            `No execution found for build ${buildId}, status: ${buildStatus}`,
+          );
         }
         return;
       }
@@ -105,17 +121,25 @@ export class EventBridgeService {
       const logEvent = this.createLogEvent(execution, event);
       await this.broadcastLogEvent(execution.executionId, logEvent);
 
-      if (buildStatus === 'SUCCEEDED' || buildStatus === 'FAILED' || buildStatus === 'STOPPED') {
+      if (
+        buildStatus === 'SUCCEEDED' ||
+        buildStatus === 'FAILED' ||
+        buildStatus === 'STOPPED'
+      ) {
         await this.finalizeExecution(execution, buildStatus);
       }
-
     } catch (error) {
-      this.logger.error(`Failed to process EventBridge event ${eventId}:`, error);
+      this.logger.error(
+        `Failed to process EventBridge event ${eventId}:`,
+        error,
+      );
       throw error;
     }
   }
 
-  private async findExecutionByBuildId(buildId: string): Promise<Execution | null> {
+  private async findExecutionByBuildId(
+    buildId: string,
+  ): Promise<Execution | null> {
     try {
       const execution = await this.executionRepository.findOne({
         where: { awsBuildId: buildId },
@@ -123,7 +147,10 @@ export class EventBridgeService {
       });
       return execution;
     } catch (error) {
-      this.logger.error(`Failed to find execution for build ${buildId}:`, error);
+      this.logger.error(
+        `Failed to find execution for build ${buildId}:`,
+        error,
+      );
       return null;
     }
   }
@@ -134,8 +161,10 @@ export class EventBridgeService {
     event: EventBridgeEvent,
   ): Promise<void> {
     try {
-      this.logger.log(`Creating new execution for build ${buildId}, project: ${projectName}`);
-      
+      this.logger.log(
+        `Creating new execution for build ${buildId}, project: ${projectName}`,
+      );
+
       const execution = this.executionRepository.create({
         awsBuildId: buildId,
         status: ExecutionStatus.RUNNING,
@@ -150,9 +179,14 @@ export class EventBridgeService {
       });
 
       await this.executionRepository.save(execution);
-      this.logger.log(`Created execution ${execution.executionId} for build ${buildId}`);
+      this.logger.log(
+        `Created execution ${execution.executionId} for build ${buildId}`,
+      );
     } catch (error) {
-      this.logger.error(`Failed to create execution for build ${buildId}:`, error);
+      this.logger.error(
+        `Failed to create execution for build ${buildId}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -164,16 +198,18 @@ export class EventBridgeService {
   ): Promise<void> {
     try {
       const statusMap: Record<string, ExecutionStatus> = {
-        'IN_PROGRESS': ExecutionStatus.RUNNING,
-        'SUCCEEDED': ExecutionStatus.SUCCESS,
-        'FAILED': ExecutionStatus.FAILED,
-        'STOPPED': ExecutionStatus.FAILED,
+        IN_PROGRESS: ExecutionStatus.RUNNING,
+        SUCCEEDED: ExecutionStatus.SUCCESS,
+        FAILED: ExecutionStatus.FAILED,
+        STOPPED: ExecutionStatus.FAILED,
       };
 
       execution.status = statusMap[status] || execution.status;
-      
+
       if (detail['additional-information']?.['end-time']) {
-        execution.completedAt = new Date(detail['additional-information']['end-time']);
+        execution.completedAt = new Date(
+          detail['additional-information']['end-time'],
+        );
       }
 
       if (detail['current-phase']) {
@@ -185,16 +221,21 @@ export class EventBridgeService {
       }
 
       await this.executionRepository.save(execution);
-      this.logger.debug(`Updated execution ${execution.executionId} status to ${execution.status}`);
+      this.logger.debug(
+        `Updated execution ${execution.executionId} status to ${execution.status}`,
+      );
     } catch (error) {
-      this.logger.error(`Failed to update execution ${execution.executionId}:`, error);
+      this.logger.error(
+        `Failed to update execution ${execution.executionId}:`,
+        error,
+      );
       throw error;
     }
   }
 
   private createLogEvent(execution: Execution, event: EventBridgeEvent): any {
     const { detail } = event;
-    
+
     return {
       executionId: execution.executionId,
       timestamp: new Date(event.time).toISOString(),
@@ -235,19 +276,30 @@ export class EventBridgeService {
     return `[${projectName}] Build ${status}`;
   }
 
-  private async broadcastLogEvent(executionId: string, logEvent: any): Promise<void> {
+  private async broadcastLogEvent(
+    executionId: string,
+    logEvent: any,
+  ): Promise<void> {
     try {
       this.logsGateway.broadcastLogs(executionId, [logEvent]);
       this.logger.debug(`Broadcast log event for execution ${executionId}`);
     } catch (error) {
-      this.logger.error(`Failed to broadcast log event for execution ${executionId}:`, error);
+      this.logger.error(
+        `Failed to broadcast log event for execution ${executionId}:`,
+        error,
+      );
     }
   }
 
-  private async finalizeExecution(execution: Execution, status: string): Promise<void> {
+  private async finalizeExecution(
+    execution: Execution,
+    status: string,
+  ): Promise<void> {
     try {
-      this.logger.log(`Finalizing execution ${execution.executionId} with status ${status}`);
-      
+      this.logger.log(
+        `Finalizing execution ${execution.executionId} with status ${status}`,
+      );
+
       if (this.useEventBridge) {
         // Stop polling will be handled by CloudWatch service if enabled
       }
@@ -261,7 +313,10 @@ export class EventBridgeService {
 
       this.logsGateway.broadcastLogs(execution.executionId, [finalEvent]);
     } catch (error) {
-      this.logger.error(`Failed to finalize execution ${execution.executionId}:`, error);
+      this.logger.error(
+        `Failed to finalize execution ${execution.executionId}:`,
+        error,
+      );
     }
   }
 

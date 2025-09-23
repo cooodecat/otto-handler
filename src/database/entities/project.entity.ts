@@ -57,8 +57,8 @@ export class Project {
   @Column({ nullable: true })
   selectedBranch: string;
 
-  @Column()
-  codebuildProjectName: string;
+  @Column({ nullable: true, type: 'varchar' })
+  codebuildProjectName: string | null;
 
   @Column({ default: 'aws/codebuild/standard:7.0' })
   buildImage: string;
@@ -69,15 +69,21 @@ export class Project {
   @Column({ default: 60 })
   buildTimeout: number;
 
-  @Column()
-  cloudwatchLogGroup: string;
-  @Column()
-  codebuildStatus: ProjectStatus;
+  @Column({ nullable: true, type: 'varchar' })
+  cloudwatchLogGroup: string | null;
+  @Column({ nullable: true, type: 'varchar' })
+  codebuildStatus: ProjectStatus | null;
 
   @Column({ nullable: true, type: 'varchar' })
   codebuildErrorMessage: string | null;
-  @Column()
-  codebuildProjectArn: string;
+  @Column({ nullable: true, type: 'varchar' })
+  codebuildProjectArn: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  ecrRepository: string | null; // ECR Repository 경로 (예: otto/development/user123/proj456)
+
+  @Column({ type: 'varchar', nullable: true })
+  latestImageTag: string | null; // 최신 이미지 태그 (예: user-123-project-456-build-789)
 
   @OneToMany(() => Pipeline, (pipeline) => pipeline.project)
   pipelines: Pipeline[];
