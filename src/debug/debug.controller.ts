@@ -15,8 +15,11 @@ export class DebugController {
   async checkPipelineStatus(@Param('pipelineId') pipelineId: string) {
     try {
       // 1. 파이프라인 정보 조회
-      const pipeline = await this.pipelineService.getPipelineById(pipelineId, 'system');
-      
+      const pipeline = await this.pipelineService.getPipelineById(
+        pipelineId,
+        'system',
+      );
+
       const serviceName = `service-${pipelineId.substring(0, 20)}`;
       const clusterName = 'code-cat-cluster';
       const targetGroupName = `tg-${pipelineId.substring(0, 20)}`;
@@ -24,28 +27,36 @@ export class DebugController {
       // 2. ECS 서비스 상태 확인
       let ecsStatus;
       try {
-        const services = await this.ecsService.describeServices(clusterName, [serviceName]);
+        const services = await this.ecsService.describeServices(clusterName, [
+          serviceName,
+        ]);
         ecsStatus = {
           found: services.services && services.services.length > 0,
-          service: services.services?.[0] ? {
-            serviceName: services.services[0].serviceName,
-            status: services.services[0].status,
-            runningCount: services.services[0].runningCount,
-            pendingCount: services.services[0].pendingCount,
-            desiredCount: services.services[0].desiredCount,
-            taskDefinition: services.services[0].taskDefinition,
-          } : null,
+          service: services.services?.[0]
+            ? {
+                serviceName: services.services[0].serviceName,
+                status: services.services[0].status,
+                runningCount: services.services[0].runningCount,
+                pendingCount: services.services[0].pendingCount,
+                desiredCount: services.services[0].desiredCount,
+                taskDefinition: services.services[0].taskDefinition,
+              }
+            : null,
         };
       } catch (error) {
-        ecsStatus = { error: error.message };
+        ecsStatus = {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
 
       // 3. ALB 타겟 그룹 상태 확인
       let targetGroupStatus;
       try {
         const targetGroups = await this.albService.listTargetGroups();
-        const targetGroup = targetGroups.find(tg => tg.name.includes(targetGroupName.substring(0, 15)));
-        
+        const targetGroup = targetGroups.find((tg) =>
+          tg.name.includes(targetGroupName.substring(0, 15)),
+        );
+
         if (targetGroup) {
           const health = await this.albService.getTargetHealth(targetGroup.arn);
           targetGroupStatus = {
@@ -62,7 +73,9 @@ export class DebugController {
           targetGroupStatus = { found: false };
         }
       } catch (error) {
-        targetGroupStatus = { error: error.message };
+        targetGroupStatus = {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
 
       return {
@@ -70,13 +83,18 @@ export class DebugController {
           id: pipeline.pipelineId,
           name: pipeline.pipelineName,
           ecrImageUri: pipeline.ecrImageUri,
-          deployOption: (pipeline as any).deployOption,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          deployOption: pipeline.deployOption,
         },
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         ecs: ecsStatus,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         targetGroup: targetGroupStatus,
       };
     } catch (error) {
-      return { error: error.message };
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
 
@@ -85,7 +103,7 @@ export class DebugController {
     try {
       // 시스템 계정으로 모든 파이프라인 조회 (실제로는 권한 확인 필요)
       const pipelines = await this.pipelineService.getPipelines({}, 'system');
-      return pipelines.map(p => ({
+      return pipelines.map((p) => ({
         id: p.pipelineId,
         name: p.pipelineName,
         projectId: p.projectId,
@@ -93,7 +111,9 @@ export class DebugController {
         hasImage: !!p.ecrImageUri,
       }));
     } catch (error) {
-      return { error: error.message };
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
 

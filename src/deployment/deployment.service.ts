@@ -217,7 +217,7 @@ export class DeploymentService {
         networkMode: 'awsvpc',
         // Fargate + awslogs 사용을 위한 execution role 필요
         executionRoleArn: this.configService.get<string>(
-          'ECS_SERVICE_ROLE_ARN',
+          'CODEBUILD_SERVICE_ROLE_ARN',
         ),
         containerDefinitions: [
           {
@@ -277,7 +277,7 @@ export class DeploymentService {
         }
       } catch (error) {
         this.logger.log(
-          `   🆕 새 ECS 서비스 생성 필요: ${serviceName} (오류: ${error.message})`,
+          `   🆕 새 ECS 서비스 생성 필요: ${serviceName} (오류: ${error instanceof Error ? error.message : String(error)})`,
         );
       }
 
@@ -607,8 +607,9 @@ export class DeploymentService {
     } catch (error) {
       // DNS 레코드가 이미 존재하는 경우는 경고만 표시하고 계속 진행
       if (
-        error.message.includes('already exists') ||
-        error.message.includes('but it already exists')
+        (error instanceof Error && error.message.includes('already exists')) ||
+        (error instanceof Error &&
+          error.message.includes('but it already exists'))
       ) {
         this.logger.warn(`⚠️  [STEP 7/8] DNS 레코드가 이미 존재: ${deployUrl}`);
         this.logger.log(`✅ [STEP 7/8] 완료: 기존 DNS 레코드 사용`);
@@ -732,7 +733,10 @@ export class DeploymentService {
       this.logger.log(`   ⏰ 로그 보존 정책 설정: 30일`);
     } catch (error) {
       // 로그 그룹이 이미 존재하는 경우는 무시
-      if (error.name === 'ResourceAlreadyExistsException') {
+      if (
+        error instanceof Error &&
+        error.name === 'ResourceAlreadyExistsException'
+      ) {
         this.logger.log(`   ✅ 로그 그룹이 이미 존재: ${logGroupName}`);
         return;
       }

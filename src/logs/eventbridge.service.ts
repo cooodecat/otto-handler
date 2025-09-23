@@ -124,8 +124,8 @@ export class EventBridgeService {
 
       await this.updateExecutionStatus(execution, buildStatus, detail);
 
-      const logEvent = this.createLogEvent(execution, event);
-      await this.broadcastLogEvent(execution.executionId, logEvent);
+      const logEvent = this.createLogEvent(execution, event) as unknown;
+      this.broadcastLogEvent(execution.executionId, logEvent);
 
       if (
         buildStatus === 'SUCCEEDED' ||
@@ -282,10 +282,7 @@ export class EventBridgeService {
     return `[${projectName}] Build ${status}`;
   }
 
-  private async broadcastLogEvent(
-    executionId: string,
-    logEvent: any,
-  ): Promise<void> {
+  private broadcastLogEvent(executionId: string, logEvent: unknown): void {
     try {
       this.logsGateway.broadcastLogs(executionId, [logEvent]);
       this.logger.debug(`Broadcast log event for execution ${executionId}`);
@@ -335,17 +332,23 @@ export class EventBridgeService {
    * 빌드 성공 후 자동 배포 트리거
    * execution.awsBuildId를 통해 pipeline을 찾고 배포 시작
    */
-  private async triggerDeploymentAfterBuild(execution: Execution): Promise<void> {
+  private async triggerDeploymentAfterBuild(
+    execution: Execution,
+  ): Promise<void> {
     try {
-      this.logger.log(`🚀 빌드 성공! 자동 배포 트리거 시작: buildId=${execution.awsBuildId}`);
+      this.logger.log(
+        `🚀 빌드 성공! 자동 배포 트리거 시작: buildId=${execution.awsBuildId}`,
+      );
 
       // awsBuildId로 pipeline 찾기 (빌드 시 pipeline 정보가 CodeBuild에 전달됨)
-      // 하지만 execution에 pipelineId가 직접 저장되어 있지 않으므로, 
+      // 하지만 execution에 pipelineId가 직접 저장되어 있지 않으므로,
       // buildId에서 pipelineId를 추출하거나 metadata에서 찾아야 함
-      
-      const projectName = execution.metadata?.projectName;
+
+      const projectName = execution.metadata?.projectName as string | undefined;
       if (!projectName) {
-        this.logger.warn(`프로젝트 이름을 찾을 수 없습니다: execution=${execution.executionId}`);
+        this.logger.warn(
+          `프로젝트 이름을 찾을 수 없습니다: execution=${execution.executionId}`,
+        );
         return;
       }
 
@@ -357,8 +360,10 @@ export class EventBridgeService {
         return;
       }
 
-      const [, userId, projectId] = nameMatch;
-      this.logger.log(`   📋 추출된 정보: userId=${userId}, projectId=${projectId}`);
+      const [, userId, projectId] = nameMatch as [string, string, string];
+      this.logger.log(
+        `   📋 추출된 정보: userId=${userId}, projectId=${projectId}`,
+      );
 
       // 해당 프로젝트의 가장 최근 파이프라인 찾기 (ecrImageUri가 있는 것)
       const pipeline = await this.pipelineRepository
@@ -371,7 +376,9 @@ export class EventBridgeService {
         .getOne();
 
       if (!pipeline) {
-        this.logger.warn(`배포할 파이프라인을 찾을 수 없습니다: userId=${userId}, projectId=${projectId}`);
+        this.logger.warn(
+          `배포할 파이프라인을 찾을 수 없습니다: userId=${userId}, projectId=${projectId}`,
+        );
         return;
       }
 
@@ -379,10 +386,11 @@ export class EventBridgeService {
 
       // 자동 배포 시작
       this.logger.log(`   🚀 자동 배포 시작...`);
-      const deploymentResult = await this.pipelineService.deployAfterBuildSuccess(
-        pipeline.pipelineId,
-        userId,
-      );
+      const deploymentResult =
+        await this.pipelineService.deployAfterBuildSuccess(
+          pipeline.pipelineId,
+          userId,
+        );
 
       this.logger.log(`🎉 자동 배포 완료!`);
       this.logger.log(`   🌐 배포 URL: https://${deploymentResult.deployUrl}`);
@@ -397,15 +405,14 @@ export class EventBridgeService {
         timestamp: new Date().toISOString(),
       };
       this.logsGateway.broadcastLogs(execution.executionId, [deployEvent]);
-
     } catch (error) {
       this.logger.error(`❌ 자동 배포 실패: ${error}`);
-      
+
       // 배포 실패 이벤트 브로드캐스트
       const errorEvent = {
         executionId: execution.executionId,
         type: 'deployment-failed',
-        error: error.message,
+        error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString(),
       };
       this.logsGateway.broadcastLogs(execution.executionId, [errorEvent]);

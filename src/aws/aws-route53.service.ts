@@ -461,20 +461,26 @@ export class AwsRoute53Service {
   } | null> {
     try {
       const { hostedZones } = await this.listHostedZones();
-      
+
       // 도메인 이름 정규화 (끝에 점이 있을 수 있음)
-      const normalizedDomain = domainName.endsWith('.') ? domainName : `${domainName}.`;
-      
-      const foundZone = hostedZones.find(zone => 
-        zone.name === normalizedDomain || zone.name === domainName
+      const normalizedDomain = domainName.endsWith('.')
+        ? domainName
+        : `${domainName}.`;
+
+      const foundZone = hostedZones.find(
+        (zone) => zone.name === normalizedDomain || zone.name === domainName,
       );
 
       if (!foundZone) {
-        this.logger.log(`도메인 ${domainName}에 대한 호스트존을 찾을 수 없습니다`);
+        this.logger.log(
+          `도메인 ${domainName}에 대한 호스트존을 찾을 수 없습니다`,
+        );
         return null;
       }
 
-      this.logger.log(`도메인 ${domainName}에 대한 호스트존 발견: ${foundZone.id}`);
+      this.logger.log(
+        `도메인 ${domainName}에 대한 호스트존 발견: ${foundZone.id}`,
+      );
       return {
         hostedZoneId: foundZone.id,
         name: foundZone.name,

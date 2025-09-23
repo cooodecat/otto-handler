@@ -35,7 +35,7 @@ export class EcrCdExample {
       const repositoryUri = await this.ensureRepository(appName);
 
       // 2. 이미지 빌드 및 ECR 푸시 (실제 환경에서는 Docker 빌드)
-      await this.buildAndPushImage(appName, imageTag, repositoryUri);
+      this.buildAndPushImage(appName, imageTag, repositoryUri);
 
       // 3. 새로운 태스크 정의 생성
       const taskDefinitionArn = await this.createTaskDefinition(
@@ -72,7 +72,7 @@ export class EcrCdExample {
         this.logger.log(`기존 ECR 리포지토리 사용: ${repositoryUri}`);
         return repositoryUri;
       }
-    } catch (error) {
+    } catch {
       // 리포지토리가 없는 경우
       this.logger.log(`ECR 리포지토리가 없음, 새로 생성: ${repositoryName}`);
     }
@@ -101,19 +101,19 @@ export class EcrCdExample {
    * Docker 이미지를 빌드하고 ECR에 푸시합니다
    * 실제 환경에서는 Docker CLI나 buildx를 사용합니다
    */
-  private async buildAndPushImage(
+  private buildAndPushImage(
     appName: string,
     imageTag: string,
     repositoryUri: string,
-  ): Promise<void> {
+  ): void {
     this.logger.log(`이미지 빌드 및 푸시 시작: ${appName}:${imageTag}`);
 
-    // ECR 로그인 토큰 획득
-    const authResponse = await this.ecrService.getAuthorizationToken();
-    const authData = authResponse.authorizationData![0];
-    const token = Buffer.from(authData.authorizationToken!, 'base64')
-      .toString()
-      .split(':')[1];
+    // ECR 로그인 토큰 획득 (실제 사용 시에는 토큰을 활용)
+    // const authResponse = await this.ecrService.getAuthorizationToken();
+    // const authData = authResponse.authorizationData![0];
+    // const token = Buffer.from(authData.authorizationToken!, 'base64')
+    //   .toString()
+    //   .split(':')[1];
 
     this.logger.log('ECR 인증 토큰 획득 완료');
 

@@ -387,7 +387,10 @@ export class AwsAlbService {
    * @param targetGroupArn - 타겟 그룹 ARN
    * @param target - 등록할 타겟 정보
    */
-  async registerTarget(targetGroupArn: string, target: { id: string; port: number }): Promise<void> {
+  async registerTarget(
+    targetGroupArn: string,
+    target: { id: string; port: number },
+  ): Promise<void> {
     await this.registerTargets({
       targetGroupArn,
       targets: [target],
@@ -399,7 +402,10 @@ export class AwsAlbService {
    * @param targetGroupArn - 타겟 그룹 ARN
    * @param target - 해제할 타겟 정보
    */
-  async deregisterTarget(targetGroupArn: string, target: { id: string; port: number }): Promise<void> {
+  async deregisterTarget(
+    targetGroupArn: string,
+    target: { id: string; port: number },
+  ): Promise<void> {
     await this.deregisterTargets({
       targetGroupArn,
       targets: [target],
@@ -580,7 +586,7 @@ export class AwsAlbService {
             port: th.Target?.Port,
             availabilityZone: th.Target?.AvailabilityZone,
           },
-          healthState: th.TargetHealth?.State!,
+          healthState: th.TargetHealth?.State || 'unknown',
           reason: th.TargetHealth?.Reason,
           description: th.TargetHealth?.Description,
         })) || [];
@@ -752,18 +758,20 @@ export class AwsAlbService {
    * 리스너 규칙 목록 조회
    * 특정 리스너의 모든 규칙을 조회합니다
    */
-  async describeRules(listenerArn: string): Promise<Array<{
-    ruleArn: string;
-    priority: string;
-    conditions: Array<{
-      field: string;
-      values: string[];
-    }>;
-    actions: Array<{
-      type: string;
-      targetGroupArn?: string;
-    }>;
-  }>> {
+  async describeRules(listenerArn: string): Promise<
+    Array<{
+      ruleArn: string;
+      priority: string;
+      conditions: Array<{
+        field: string;
+        values: string[];
+      }>;
+      actions: Array<{
+        type: string;
+        targetGroupArn?: string;
+      }>;
+    }>
+  > {
     try {
       const command = new DescribeRulesCommand({
         ListenerArn: listenerArn,
@@ -771,18 +779,21 @@ export class AwsAlbService {
 
       const result = await this.elbv2Client.send(command);
 
-      const rules = result.Rules?.map((rule) => ({
-        ruleArn: rule.RuleArn || '',
-        priority: rule.Priority || '',
-        conditions: rule.Conditions?.map((condition) => ({
-          field: condition.Field || '',
-          values: condition.Values || [],
-        })) || [],
-        actions: rule.Actions?.map((action) => ({
-          type: action.Type || '',
-          targetGroupArn: action.TargetGroupArn,
-        })) || [],
-      })) || [];
+      const rules =
+        result.Rules?.map((rule) => ({
+          ruleArn: rule.RuleArn || '',
+          priority: rule.Priority || '',
+          conditions:
+            rule.Conditions?.map((condition) => ({
+              field: condition.Field || '',
+              values: condition.Values || [],
+            })) || [],
+          actions:
+            rule.Actions?.map((action) => ({
+              type: action.Type || '',
+              targetGroupArn: action.TargetGroupArn,
+            })) || [],
+        })) || [];
 
       this.logger.log(`리스너 규칙 목록 조회 완료: ${rules.length}개`);
       return rules;
@@ -814,23 +825,31 @@ export class AwsAlbService {
    * 호스트 헤더로 기존 규칙 찾기
    * 특정 호스트 헤더를 사용하는 규칙들을 찾습니다
    */
-  async findRulesByHostHeader(listenerArn: string, hostHeader: string): Promise<Array<{
-    ruleArn: string;
-    priority: string;
-  }>> {
+  async findRulesByHostHeader(
+    listenerArn: string,
+    hostHeader: string,
+  ): Promise<
+    Array<{
+      ruleArn: string;
+      priority: string;
+    }>
+  > {
     try {
       const rules = await this.describeRules(listenerArn);
-      
-      const matchingRules = rules.filter(rule => 
-        rule.conditions.some(condition => 
-          condition.field === 'host-header' && 
-          condition.values.includes(hostHeader)
-        )
+
+      const matchingRules = rules.filter((rule) =>
+        rule.conditions.some(
+          (condition) =>
+            condition.field === 'host-header' &&
+            condition.values.includes(hostHeader),
+        ),
       );
 
-      this.logger.log(`호스트 헤더 ${hostHeader}에 대한 규칙 ${matchingRules.length}개 발견`);
-      
-      return matchingRules.map(rule => ({
+      this.logger.log(
+        `호스트 헤더 ${hostHeader}에 대한 규칙 ${matchingRules.length}개 발견`,
+      );
+
+      return matchingRules.map((rule) => ({
         ruleArn: rule.ruleArn,
         priority: rule.priority,
       }));

@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { DebugController } from './debug.controller';
 import { AwsEcsService } from '../aws/aws-ecs.service';
 import { AwsAlbService } from '../aws/aws-alb.service';
-import { PipelineService } from '../pipeline/pipeline.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
 
 @Module({

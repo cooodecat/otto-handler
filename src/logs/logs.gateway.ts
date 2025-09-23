@@ -204,6 +204,14 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
   }
 
+  // 로그 브로드캐스트
+  broadcastLogs(executionId: string, logs: unknown[]): void {
+    this.server.to(`execution:${executionId}`).emit('logs:new', logs);
+    this.logger.log(
+      `Broadcasted ${logs.length} logs to execution:${executionId}`,
+    );
+  }
+
   private validateToken(token: string): { userId: string } | null {
     if (!token) {
       return null;
