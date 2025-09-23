@@ -7,7 +7,13 @@ import {
   ExecutionType,
   ExecutionStatus,
 } from '../database/entities/execution.entity';
-import { LogEntry } from './types/log.types';
+
+interface LogEntry {
+  executionId: string;
+  timestamp: Date;
+  message: string;
+  level: string;
+}
 
 interface TestLogDto {
   message: string;
