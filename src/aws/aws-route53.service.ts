@@ -452,6 +452,40 @@ export class AwsRoute53Service {
   }
 
   /**
+   * 도메인 이름으로 호스트존 검색
+   * 기존 호스트존 중에서 도메인 이름과 일치하는 것을 찾습니다
+   */
+  async findHostedZoneByDomain(domainName: string): Promise<{
+    hostedZoneId: string;
+    name: string;
+  } | null> {
+    try {
+      const { hostedZones } = await this.listHostedZones();
+      
+      // 도메인 이름 정규화 (끝에 점이 있을 수 있음)
+      const normalizedDomain = domainName.endsWith('.') ? domainName : `${domainName}.`;
+      
+      const foundZone = hostedZones.find(zone => 
+        zone.name === normalizedDomain || zone.name === domainName
+      );
+
+      if (!foundZone) {
+        this.logger.log(`도메인 ${domainName}에 대한 호스트존을 찾을 수 없습니다`);
+        return null;
+      }
+
+      this.logger.log(`도메인 ${domainName}에 대한 호스트존 발견: ${foundZone.id}`);
+      return {
+        hostedZoneId: foundZone.id,
+        name: foundZone.name,
+      };
+    } catch (error) {
+      this.logger.error(`호스트존 검색 실패: ${error}`);
+      throw new Error(`호스트존 검색 실패: ${error}`);
+    }
+  }
+
+  /**
    * 호스트존 상세 정보 조회
    * 특정 호스트존의 상세 정보를 조회합니다
    */

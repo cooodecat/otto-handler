@@ -15,6 +15,8 @@ import {
   DeleteClusterCommand,
   UpdateServiceCommand,
   StopTaskCommand,
+  ListTasksCommand,
+  DescribeTasksCommand,
 } from '@aws-sdk/client-ecs';
 import {
   CreateClusterInput,
@@ -34,6 +36,12 @@ export class AwsEcsService {
   constructor(private configService: ConfigService) {
     this.ecsClient = new ECSClient({
       region: this.configService.get<string>('AWS_REGION') || 'us-east-1',
+      credentials: {
+        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
+        secretAccessKey: this.configService.get<string>(
+          'AWS_SECRET_ACCESS_KEY',
+        )!,
+      },
     });
   }
 
@@ -57,9 +65,25 @@ export class AwsEcsService {
    * @returns 등록된 태스크 정의 정보
    */
   async registerTaskDefinition(input: CreateTaskDefinitionInput) {
+    // ContainerDefinition을 AWS SDK 형식으로 매핑
+    const containerDefinitions = input.containerDefinitions.map(
+      (container) => ({
+        name: container.name,
+        image: container.image,
+        memory: container.memory,
+        cpu: container.cpu,
+        essential: container.essential,
+        portMappings: container.portMappings,
+        environment: container.environment,
+        logConfiguration: container.logConfiguration,
+        // command 필드 추가 (pipeline.deployOption.command 지원)
+        command: container.command,
+      }),
+    );
+
     const command = new RegisterTaskDefinitionCommand({
       family: input.family,
-      containerDefinitions: input.containerDefinitions,
+      containerDefinitions,
       requiresCompatibilities: input.requiresCompatibilities || ['FARGATE'],
       networkMode: input.networkMode || 'awsvpc',
       cpu: input.cpu,
@@ -232,6 +256,34 @@ export class AwsEcsService {
       cluster,
       task,
       reason,
+    });
+    return await this.ecsClient.send(command);
+  }
+
+  /**
+   * 특정 서비스의 태스크 목록을 조회합니다
+   * @param cluster - 클러스터 이름 또는 ARN
+   * @param serviceName - 서비스 이름 (선택사항)
+   * @returns 태스크 목록
+   */
+  async listTasks(cluster: string, serviceName?: string) {
+    const command = new ListTasksCommand({
+      cluster,
+      serviceName,
+    });
+    return await this.ecsClient.send(command);
+  }
+
+  /**
+   * 특정 태스크들의 상세 정보를 조회합니다
+   * @param cluster - 클러스터 이름 또는 ARN
+   * @param tasks - 조회할 태스크 ARN 목록
+   * @returns 태스크 상세 정보
+   */
+  async describeTasks(cluster: string, tasks: string[]) {
+    const command = new DescribeTasksCommand({
+      cluster,
+      tasks,
     });
     return await this.ecsClient.send(command);
   }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  ActionTypeEnum,
   CreateListenerCommand,
   CreateLoadBalancerCommand,
   CreateRuleCommand,
@@ -10,7 +11,9 @@ import {
   DeleteRuleCommand,
   DeleteTargetGroupCommand,
   DeregisterTargetsCommand,
+  DescribeListenersCommand,
   DescribeLoadBalancersCommand,
+  DescribeRulesCommand,
   DescribeTargetGroupsCommand,
   DescribeTargetHealthCommand,
   ElasticLoadBalancingV2Client,
@@ -312,72 +315,6 @@ export class AwsAlbService {
   }
 
   /**
-   * 리스너 규칙 생성
-   * 리스너에 조건부 라우팅 규칙을 추가합니다
-   */
-  async createListenerRule(input: CreateListenerRuleInput): Promise<{
-    ruleArn: string;
-    priority: string;
-  }> {
-    try {
-      const conditions = input.conditions.map((condition) => ({
-        Field: condition.field,
-        Values: condition.values,
-      }));
-
-      const actions = input.actions.map((action) => ({
-        Type: action.type,
-        TargetGroupArn: action.targetGroupArn,
-        RedirectConfig: action.redirectConfig
-          ? {
-              Protocol: action.redirectConfig.protocol,
-              Port: action.redirectConfig.port,
-              Host: action.redirectConfig.host,
-              Path: action.redirectConfig.path,
-              Query: action.redirectConfig.query,
-              StatusCode: RedirectActionStatusCodeEnum.HTTP_301,
-            }
-          : undefined,
-        FixedResponseConfig: action.fixedResponseConfig
-          ? {
-              StatusCode: action.fixedResponseConfig.statusCode,
-              ContentType: action.fixedResponseConfig.contentType,
-              MessageBody: action.fixedResponseConfig.messageBody,
-            }
-          : undefined,
-      }));
-
-      const command = new CreateRuleCommand({
-        ListenerArn: input.listenerArn,
-        Conditions: conditions,
-        Priority: input.priority,
-        Actions: actions,
-        Tags: input.tags?.map((tag) => ({
-          Key: tag.key,
-          Value: tag.value,
-        })),
-      });
-
-      const result = await this.elbv2Client.send(command);
-      const rule = result.Rules?.[0];
-
-      if (!rule) {
-        throw new Error('리스너 규칙 생성 응답이 비어있습니다');
-      }
-
-      this.logger.log(`리스너 규칙 생성 완료: ${rule.RuleArn}`);
-
-      return {
-        ruleArn: rule.RuleArn || '',
-        priority: rule.Priority || '',
-      };
-    } catch (error) {
-      this.logger.error(`리스너 규칙 생성 실패: ${error}`);
-      throw new Error(`리스너 규칙 생성 실패: ${error}`);
-    }
-  }
-
-  /**
    * 리스너 규칙 삭제
    * 지정된 리스너 규칙을 삭제합니다
    */
@@ -446,6 +383,30 @@ export class AwsAlbService {
   }
 
   /**
+   * 단일 타겟을 타겟 그룹에 등록합니다
+   * @param targetGroupArn - 타겟 그룹 ARN
+   * @param target - 등록할 타겟 정보
+   */
+  async registerTarget(targetGroupArn: string, target: { id: string; port: number }): Promise<void> {
+    await this.registerTargets({
+      targetGroupArn,
+      targets: [target],
+    });
+  }
+
+  /**
+   * 단일 타겟을 타겟 그룹에서 해제합니다
+   * @param targetGroupArn - 타겟 그룹 ARN
+   * @param target - 해제할 타겟 정보
+   */
+  async deregisterTarget(targetGroupArn: string, target: { id: string; port: number }): Promise<void> {
+    await this.deregisterTargets({
+      targetGroupArn,
+      targets: [target],
+    });
+  }
+
+  /**
    * 로드밸런서 목록 조회
    * 계정의 모든 로드밸런서를 조회합니다
    */
@@ -479,6 +440,87 @@ export class AwsAlbService {
     } catch (error) {
       this.logger.error(`로드밸런서 목록 조회 실패: ${error}`);
       throw new Error(`로드밸런서 목록 조회 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 로드밸런서 목록 조회
+   * 이름으로 로드밸런서를 조회합니다
+   */
+  async describeLoadBalancers(names?: string[]): Promise<LoadBalancerInfo[]> {
+    try {
+      const command = new DescribeLoadBalancersCommand({
+        Names: names,
+      });
+
+      const result = await this.elbv2Client.send(command);
+
+      const loadBalancers =
+        result.LoadBalancers?.map((lb) => ({
+          arn: lb.LoadBalancerArn || '',
+          name: lb.LoadBalancerName || '',
+          dnsName: lb.DNSName || '',
+          canonicalHostedZoneId: lb.CanonicalHostedZoneId || '',
+          scheme: lb.Scheme || '',
+          vpcId: lb.VpcId || '',
+          type: lb.Type || '',
+          state: lb.State?.Code || '',
+          createdTime: lb.CreatedTime || new Date(),
+          ipAddressType: lb.IpAddressType || '',
+          availabilityZones:
+            lb.AvailabilityZones?.map((az) => ({
+              zoneName: az.ZoneName || '',
+              subnetId: az.SubnetId || '',
+            })) || [],
+          securityGroups: lb.SecurityGroups || [],
+        })) || [];
+
+      this.logger.log(`로드밸런서 목록 조회 완료: ${loadBalancers.length}개`);
+      return loadBalancers;
+    } catch (error) {
+      this.logger.error(`로드밸런서 목록 조회 실패: ${error}`);
+      throw new Error(`로드밸런서 목록 조회 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 이름으로 ALB 검색
+   * 모든 ALB를 조회한 후 이름으로 필터링합니다
+   */
+  async findLoadBalancerByName(name: string): Promise<LoadBalancerInfo | null> {
+    try {
+      const command = new DescribeLoadBalancersCommand({});
+      const result = await this.elbv2Client.send(command);
+
+      const loadBalancer = result.LoadBalancers?.find(
+        (lb) => lb.LoadBalancerName === name,
+      );
+
+      if (!loadBalancer) {
+        return null;
+      }
+
+      return {
+        arn: loadBalancer.LoadBalancerArn || '',
+        name: loadBalancer.LoadBalancerName || '',
+        dnsName: loadBalancer.DNSName || '',
+        canonicalHostedZoneId: loadBalancer.CanonicalHostedZoneId || '',
+        scheme: loadBalancer.Scheme || '',
+        vpcId: loadBalancer.VpcId || '',
+        type: loadBalancer.Type || '',
+        state: loadBalancer.State?.Code || '',
+        createdTime: loadBalancer.CreatedTime || new Date(),
+        ipAddressType: loadBalancer.IpAddressType || '',
+        availabilityZones:
+          loadBalancer.AvailabilityZones?.map((az) => ({
+            zoneName: az.ZoneName || '',
+            subnetId: az.SubnetId || '',
+          })) || [],
+        securityGroups: loadBalancer.SecurityGroups || [],
+      };
+    } catch (error) {
+      this.logger.error(`ALB 이름 검색 실패: ${error}`);
+      throw new Error(`ALB 이름 검색 실패: ${error}`);
     }
   }
 
@@ -598,6 +640,203 @@ export class AwsAlbService {
     } catch (error) {
       this.logger.error(`타겟 그룹 속성 수정 실패: ${error}`);
       throw new Error(`타겟 그룹 속성 수정 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 리스너 규칙 생성
+   * ALB 리스너에 라우팅 규칙을 추가합니다
+   */
+  async createListenerRule(input: CreateListenerRuleInput): Promise<{
+    ruleArn: string;
+    priority: number;
+  }> {
+    try {
+      const command = new CreateRuleCommand({
+        ListenerArn: input.listenerArn,
+        Conditions: input.conditions.map((condition) => ({
+          Field: condition.field,
+          Values: condition.values,
+        })),
+        Actions: input.actions.map((action) => ({
+          Type: action.type,
+          TargetGroupArn: action.targetGroupArn,
+          RedirectConfig: action.redirectConfig
+            ? {
+                Protocol: action.redirectConfig.protocol,
+                Port: action.redirectConfig.port,
+                Host: action.redirectConfig.host,
+                Path: action.redirectConfig.path,
+                Query: action.redirectConfig.query,
+                StatusCode: RedirectActionStatusCodeEnum.HTTP_301,
+              }
+            : undefined,
+          FixedResponseConfig: action.fixedResponseConfig
+            ? {
+                StatusCode: action.fixedResponseConfig.statusCode,
+                ContentType: action.fixedResponseConfig.contentType,
+                MessageBody: action.fixedResponseConfig.messageBody,
+              }
+            : undefined,
+        })),
+        Priority: input.priority,
+      });
+
+      const result = await this.elbv2Client.send(command);
+
+      this.logger.log(`리스너 규칙 생성 완료: ${result.Rules?.[0]?.RuleArn}`);
+
+      return {
+        ruleArn: result.Rules?.[0]?.RuleArn || '',
+        priority: result.Rules?.[0]?.Priority
+          ? parseInt(result.Rules[0].Priority)
+          : 0,
+      };
+    } catch (error) {
+      this.logger.error(`리스너 규칙 생성 실패: ${error}`);
+      throw new Error(`리스너 규칙 생성 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 리스너 목록 조회
+   * 로드밸런서의 모든 리스너를 조회합니다
+   */
+  async describeListeners(loadBalancerArn: string): Promise<ListenerInfo[]> {
+    try {
+      const command = new DescribeListenersCommand({
+        LoadBalancerArn: loadBalancerArn,
+      });
+
+      const result = await this.elbv2Client.send(command);
+
+      const listeners =
+        result.Listeners?.map((listener) => ({
+          arn: listener.ListenerArn || '',
+          loadBalancerArn: listener.LoadBalancerArn || '',
+          protocol: listener.Protocol || '',
+          port: listener.Port || 0,
+          defaultActions:
+            listener.DefaultActions?.map((action) => ({
+              type: (action.Type as ActionTypeEnum) || ActionTypeEnum.FORWARD,
+              targetGroupArn: action.TargetGroupArn,
+              redirectConfig: action.RedirectConfig
+                ? {
+                    protocol: action.RedirectConfig.Protocol,
+                    port: action.RedirectConfig.Port,
+                    host: action.RedirectConfig.Host,
+                    path: action.RedirectConfig.Path,
+                    query: action.RedirectConfig.Query,
+                    statusCode: action.RedirectConfig.StatusCode || '',
+                  }
+                : undefined,
+              fixedResponseConfig: action.FixedResponseConfig
+                ? {
+                    statusCode: action.FixedResponseConfig.StatusCode || '',
+                    contentType: action.FixedResponseConfig.ContentType,
+                    messageBody: action.FixedResponseConfig.MessageBody,
+                  }
+                : undefined,
+            })) || [],
+        })) || [];
+
+      this.logger.log(`리스너 목록 조회 완료: ${listeners.length}개`);
+      return listeners;
+    } catch (error) {
+      this.logger.error(`리스너 목록 조회 실패: ${error}`);
+      throw new Error(`리스너 목록 조회 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 리스너 규칙 목록 조회
+   * 특정 리스너의 모든 규칙을 조회합니다
+   */
+  async describeRules(listenerArn: string): Promise<Array<{
+    ruleArn: string;
+    priority: string;
+    conditions: Array<{
+      field: string;
+      values: string[];
+    }>;
+    actions: Array<{
+      type: string;
+      targetGroupArn?: string;
+    }>;
+  }>> {
+    try {
+      const command = new DescribeRulesCommand({
+        ListenerArn: listenerArn,
+      });
+
+      const result = await this.elbv2Client.send(command);
+
+      const rules = result.Rules?.map((rule) => ({
+        ruleArn: rule.RuleArn || '',
+        priority: rule.Priority || '',
+        conditions: rule.Conditions?.map((condition) => ({
+          field: condition.Field || '',
+          values: condition.Values || [],
+        })) || [],
+        actions: rule.Actions?.map((action) => ({
+          type: action.Type || '',
+          targetGroupArn: action.TargetGroupArn,
+        })) || [],
+      })) || [];
+
+      this.logger.log(`리스너 규칙 목록 조회 완료: ${rules.length}개`);
+      return rules;
+    } catch (error) {
+      this.logger.error(`리스너 규칙 목록 조회 실패: ${error}`);
+      throw new Error(`리스너 규칙 목록 조회 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 리스너 규칙 삭제
+   * 특정 규칙을 삭제합니다
+   */
+  async deleteRule(ruleArn: string): Promise<void> {
+    try {
+      const command = new DeleteRuleCommand({
+        RuleArn: ruleArn,
+      });
+
+      await this.elbv2Client.send(command);
+      this.logger.log(`리스너 규칙 삭제 완료: ${ruleArn}`);
+    } catch (error) {
+      this.logger.error(`리스너 규칙 삭제 실패: ${error}`);
+      throw new Error(`리스너 규칙 삭제 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 호스트 헤더로 기존 규칙 찾기
+   * 특정 호스트 헤더를 사용하는 규칙들을 찾습니다
+   */
+  async findRulesByHostHeader(listenerArn: string, hostHeader: string): Promise<Array<{
+    ruleArn: string;
+    priority: string;
+  }>> {
+    try {
+      const rules = await this.describeRules(listenerArn);
+      
+      const matchingRules = rules.filter(rule => 
+        rule.conditions.some(condition => 
+          condition.field === 'host-header' && 
+          condition.values.includes(hostHeader)
+        )
+      );
+
+      this.logger.log(`호스트 헤더 ${hostHeader}에 대한 규칙 ${matchingRules.length}개 발견`);
+      
+      return matchingRules.map(rule => ({
+        ruleArn: rule.ruleArn,
+        priority: rule.priority,
+      }));
+    } catch (error) {
+      this.logger.error(`호스트 헤더 규칙 검색 실패: ${error}`);
+      throw new Error(`호스트 헤더 규칙 검색 실패: ${error}`);
     }
   }
 }

@@ -36,6 +36,11 @@ export class Pipeline {
   @Column({ type: 'varchar', nullable: true, default: null })
   deployUrl: string | null;
 
+  @Column({ type: 'json', nullable: true, default: null })
+  env: Record<string, string> | null;
+
+  @Column({ type: 'json', nullable: true, default: null })
+  deployOption: { port: number; command: string };
   @CreateDateColumn()
   createdAt: Date;
 

@@ -7,6 +7,7 @@
 import type { IConnection } from "@nestia/fetcher";
 import { PlainFetcher } from "@nestia/fetcher/lib/PlainFetcher";
 
+import type { Recordstringunknown } from "../../../../structures/Recordstringunknown";
 import type { TestLogDto } from "../../../../structures/TestLogDto";
 
 /**
@@ -38,7 +39,7 @@ export async function sendTestLog(
 }
 export namespace sendTestLog {
   export type Body = TestLogDto;
-  export type Output = any;
+  export type Output = Recordstringunknown;
 
   export const METADATA = {
     method: "POST",

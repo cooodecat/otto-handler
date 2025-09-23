@@ -69,6 +69,8 @@ export interface ContainerDefinition {
   environment?: ContainerEnvironment[];
   /** 로그 설정 */
   logConfiguration?: ContainerLogConfiguration;
+  /** 컨테이너 시작 명령어 */
+  command?: string[];
 }
 
 /**

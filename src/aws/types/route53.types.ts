@@ -1,4 +1,9 @@
-import { RRType, ResourceRecordSetFailover, ResourceRecordSetRegion, VPCRegion } from '@aws-sdk/client-route-53';
+import {
+  RRType,
+  ResourceRecordSetFailover,
+  ResourceRecordSetRegion,
+  VPCRegion,
+} from '@aws-sdk/client-route-53';
 
 /**
  * Route53 호스트존 생성을 위한 입력 타입
