@@ -83,7 +83,7 @@ export class DebugController {
           id: pipeline.pipelineId,
           name: pipeline.pipelineName,
           ecrImageUri: pipeline.ecrImageUri,
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+
           deployOption: pipeline.deployOption,
         },
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

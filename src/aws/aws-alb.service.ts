@@ -21,6 +21,7 @@ import {
   ModifyTargetGroupAttributesCommand,
   RedirectActionStatusCodeEnum,
   RegisterTargetsCommand,
+  TargetHealthStateEnum,
 } from '@aws-sdk/client-elastic-load-balancing-v2';
 import {
   CreateListenerInput,
@@ -586,7 +587,9 @@ export class AwsAlbService {
             port: th.Target?.Port,
             availabilityZone: th.Target?.AvailabilityZone,
           },
-          healthState: th.TargetHealth?.State || 'unknown',
+          healthState:
+            (th.TargetHealth?.State as TargetHealthStateEnum) ||
+            TargetHealthStateEnum.UNAVAILABLE,
           reason: th.TargetHealth?.Reason,
           description: th.TargetHealth?.Description,
         })) || [];
@@ -733,7 +736,10 @@ export class AwsAlbService {
                     host: action.RedirectConfig.Host,
                     path: action.RedirectConfig.Path,
                     query: action.RedirectConfig.Query,
-                    statusCode: action.RedirectConfig.StatusCode || '',
+                    statusCode:
+                      (action.RedirectConfig
+                        .StatusCode as RedirectActionStatusCodeEnum) ||
+                      RedirectActionStatusCodeEnum.HTTP_301,
                   }
                 : undefined,
               fixedResponseConfig: action.FixedResponseConfig
