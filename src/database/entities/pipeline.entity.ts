@@ -27,6 +27,12 @@ export class Pipeline {
   @Column()
   pipelineName: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  ecrImageUri: string | null; // 빌드된 이미지 전체 URI (예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/otto/development/user123/proj456:build-789)
+
+  @Column({ type: 'varchar', nullable: true })
+  imageTag: string | null; // 이미지 태그만 (예: build-789)
+
   @CreateDateColumn()
   createdAt: Date;
 

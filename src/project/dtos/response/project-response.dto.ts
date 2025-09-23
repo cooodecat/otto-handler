@@ -20,7 +20,7 @@ export interface ProjectResponseDto {
   /** GitHub App 설치 ID */
   installationId: string | null;
   /** CodeBuild 프로젝트 이름 */
-  codebuildProjectName: string;
+  codebuildProjectName: string | null;
   /** 빌드 이미지 */
   buildImage: string;
   /** 컴퓨트 타입 */
@@ -28,13 +28,17 @@ export interface ProjectResponseDto {
   /** 빌드 타임아웃 (분) */
   buildTimeout: number;
   /** CloudWatch 로그 그룹 */
-  cloudwatchLogGroup: string;
+  cloudwatchLogGroup: string | null;
   /** CodeBuild 상태 */
-  codebuildStatus: ProjectStatus;
+  codebuildStatus: ProjectStatus | null;
   /** CodeBuild 에러 메시지 */
   codebuildErrorMessage: string | null;
   /** CodeBuild 프로젝트 ARN */
-  codebuildProjectArn: string;
+  codebuildProjectArn: string | null;
+  /** ECR 리포지토리 경로 */
+  ecrRepository: string | null;
+  /** 최신 이미지 태그 */
+  latestImageTag: string | null;
   /** 생성일 */
   createdAt: Date;
   /** 수정일 */

@@ -20,6 +20,16 @@ export interface PipelineResponseDto {
   data: any;
 
   /**
+   * ECR 이미지 URI (빌드된 이미지 전체 URI)
+   */
+  ecrImageUri?: string | null;
+
+  /**
+   * 이미지 태그 (빌드 번호 기반)
+   */
+  imageTag?: string | null;
+
+  /**
    * 생성일
    */
   createdAt: Date;
