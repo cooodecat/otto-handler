@@ -8,6 +8,7 @@ import { UserModule } from './user/user.module';
 import { ProjectModule } from './project/project.module';
 import { GithubAppModule } from './github-app/github-app.module';
 import { PipelineModule } from './pipeline/pipeline.module';
+import { LogsModule } from './logs/logs.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { PipelineModule } from './pipeline/pipeline.module';
     ProjectModule,
     GithubAppModule,
     PipelineModule,
+    LogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
