@@ -192,6 +192,10 @@ export class CloudwatchService {
     this.pollers.clear();
   }
 
+  isPolling(executionId: string): boolean {
+    return this.pollers.has(executionId);
+  }
+
   private detectLogLevel(message: string): LogLevel {
     const lowerMessage = message.toLowerCase();
     if (lowerMessage.includes('error') || lowerMessage.includes('fail')) {

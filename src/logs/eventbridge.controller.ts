@@ -61,7 +61,7 @@ export class EventBridgeController {
       this.logger.log(
         `Received EventBridge event: ${event.id}, Source: ${event.source}`,
       );
-      
+
       // Debug: Log full event details
       this.logger.log(`Event detail-type: ${event['detail-type']}`);
       this.logger.log(`Event detail: ${JSON.stringify(event.detail)}`);

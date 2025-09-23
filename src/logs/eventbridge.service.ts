@@ -123,13 +123,46 @@ export class EventBridgeService {
         !buildStatus &&
         event['detail-type'] === 'CodeBuild Build Phase Change'
       ) {
-        const phase = detail['current-phase'];
-        const phaseStatus = detail['current-phase-status'];
+        const detailAny = detail as any;
+        const phase = detailAny['current-phase'] || detailAny['completed-phase'];
+        const phaseStatus =
+          detailAny['current-phase-status'] || detailAny['completed-phase-status'];
         this.logger.log(
           `Phase change event - Phase: ${phase}, Status: ${phaseStatus}`,
         );
 
-        // Phase change 이벤트는 무시하고 State change 이벤트만 처리
+        // Phase change 이벤트에서도 execution 찾아서 CloudWatch 폴링 확인
+        const phaseExecution = await this.findExecutionByBuildId(buildId);
+        if (
+          phaseExecution &&
+          !this.cloudwatchService.isPolling(phaseExecution.executionId)
+        ) {
+          this.logger.log(
+            `Starting CloudWatch polling for phase change event - Execution: ${phaseExecution.executionId}`,
+          );
+          try {
+            await this.cloudwatchService.startPolling(phaseExecution);
+          } catch (error) {
+            this.logger.error(
+              `Failed to start CloudWatch polling: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
+          }
+        }
+
+        // Phase 정보를 WebSocket으로 전송
+        if (phaseExecution) {
+          const phaseEvent = {
+            executionId: phaseExecution.executionId,
+            type: 'phase-change',
+            phase: String(phase || ''),
+            status: String(phaseStatus || ''),
+            timestamp: new Date().toISOString(),
+          };
+          this.logsGateway.server
+            .to(`execution:${phaseExecution.executionId}`)
+            .emit('phase:update', phaseEvent);
+        }
+
         return;
       }
 
@@ -169,8 +202,8 @@ export class EventBridgeService {
               );
             } catch (error) {
               this.logger.error(
-                `Failed to start CloudWatch polling for ${executionId}: ${error.message}`,
-                error.stack,
+                `Failed to start CloudWatch polling for ${executionId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                error instanceof Error ? error.stack : undefined,
               );
             }
           } else {
@@ -367,8 +400,8 @@ export class EventBridgeService {
       );
     } catch (error) {
       this.logger.error(
-        `Failed to update execution ${execution.executionId}:`,
-        error,
+        `Failed to update execution ${execution.executionId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
       );
       throw error;
     }
@@ -415,8 +448,8 @@ export class EventBridgeService {
       const logData = {
         executionId: execution.executionId,
         timestamp: new Date(event.time),
-        message: logEvent.message,
-        level: logEvent.level,
+        message: (logEvent as any).message as string,
+        level: (logEvent as any).level,
       };
 
       await this.logStorageService.saveLogs([logData]);
@@ -442,7 +475,7 @@ export class EventBridgeService {
     return `[${projectName}] Build ${status}`;
   }
 
-  private broadcastLogEvent(executionId: string, logEvent: unknown): void {
+  private broadcastLogEvent(executionId: string, _logEvent: unknown): void {
     try {
       // Events are now broadcasted through LogBufferService event emitter
       this.logger.debug(`Log event ready for execution ${executionId}`);
@@ -454,14 +487,14 @@ export class EventBridgeService {
     }
   }
 
-  private async broadcastStatusEvent(
+  private broadcastStatusEvent(
     executionId: string,
     statusEvent: any,
-  ): Promise<void> {
+  ): void {
     try {
       // Normalize AWS CodeBuild statuses to internal ExecutionStatus for frontend
       const normalized = this.mapBuildStatusToExecutionStatus(
-        statusEvent.status,
+        statusEvent.status as string,
       );
       // Status broadcasts now handled through status change methods
       this.logsGateway.broadcastStatusChange(executionId, normalized);
