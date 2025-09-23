@@ -33,6 +33,9 @@ export class Pipeline {
   @Column({ type: 'varchar', nullable: true })
   imageTag: string | null; // 이미지 태그만 (예: build-789)
 
+  @Column({ type: 'varchar', nullable: true, default: null })
+  deployUrl: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
