@@ -7,6 +7,8 @@
 import type { IConnection } from "@nestia/fetcher";
 import { PlainFetcher } from "@nestia/fetcher/lib/PlainFetcher";
 
+import type { Recordstringunknown } from "../../../../structures/Recordstringunknown";
+
 /**
  * @controller TestLogsController.updateStatus
  * @path POST /test-logs/executions/:id/status
@@ -38,7 +40,7 @@ export namespace updateStatus {
   export type Body = {
     status: string;
   };
-  export type Output = any;
+  export type Output = Recordstringunknown;
 
   export const METADATA = {
     method: "POST",

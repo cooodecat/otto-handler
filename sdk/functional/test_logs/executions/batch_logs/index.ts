@@ -7,6 +7,8 @@
 import type { IConnection } from "@nestia/fetcher";
 import { PlainFetcher } from "@nestia/fetcher/lib/PlainFetcher";
 
+import type { Recordstringunknown } from "../../../../structures/Recordstringunknown";
+
 /**
  * @controller TestLogsController.sendBatchLogs
  * @path POST /test-logs/executions/:id/batch-logs
@@ -39,7 +41,7 @@ export namespace sendBatchLogs {
     count: number;
     delay?: undefined | number;
   };
-  export type Output = any;
+  export type Output = Recordstringunknown;
 
   export const METADATA = {
     method: "POST",

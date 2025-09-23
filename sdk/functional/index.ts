@@ -15,6 +15,7 @@ export * as webhook from "./webhook/index";
 export * as pipelines from "./pipelines/index";
 export * as logs from "./logs/index";
 export * as test_logs from "./test_logs/index";
+export * as events from "./events/index";
 
 /**
  * @controller AppController.getHello

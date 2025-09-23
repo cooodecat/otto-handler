@@ -70,7 +70,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(
         `Authentication failed for client ${client.id}:`,
-        error,
+        error as Error,
       );
       // 개발 환경에서는 에러가 있어도 연결 허용
       if (process.env.NODE_ENV === 'development') {
@@ -151,7 +151,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(
         `Error in handleSubscribe for client ${client.id}:`,
-        error,
+        error as Error,
       );
       client.emit('error', {
         message: 'Failed to subscribe to execution logs',
@@ -173,7 +173,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // Event listener for new logs from LogBufferService
   @OnEvent('logs.new')
-  handleNewLogs(payload: { executionId: string; logs: any[] }): void {
+  handleNewLogs(payload: { executionId: string; logs: unknown[] }): void {
     const { executionId, logs } = payload;
     // Broadcast each log individually for real-time effect
     logs.forEach((log) => {
@@ -204,6 +204,14 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
   }
 
+  // 로그 브로드캐스트
+  broadcastLogs(executionId: string, logs: unknown[]): void {
+    this.server.to(`execution:${executionId}`).emit('logs:new', logs);
+    this.logger.log(
+      `Broadcasted ${logs.length} logs to execution:${executionId}`,
+    );
+  }
+
   private validateToken(token: string): { userId: string } | null {
     if (!token) {
       return null;
@@ -216,7 +224,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       return decoded;
     } catch (error) {
-      this.logger.error('Token validation error:', error);
+      this.logger.error('Token validation error:', error as Error);
       return null;
     }
   }

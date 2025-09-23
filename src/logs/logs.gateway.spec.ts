@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Test, TestingModule } from '@nestjs/testing';
 import { LogsGateway } from './logs.gateway';
 import { LogsService } from './logs.service';
@@ -31,27 +33,33 @@ describe('LogsGateway', () => {
   } as unknown as Server;
 
   beforeEach(async () => {
+    const mockLogsService = {
+      checkAccess: jest.fn(),
+      getHistoricalLogs: jest.fn(),
+    };
+
+    const mockLogBufferService = {
+      getRecentLogs: jest.fn(),
+    };
+
+    const mockJwtService = {
+      decode: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LogsGateway,
         {
           provide: LogsService,
-          useValue: {
-            checkAccess: jest.fn(),
-            getHistoricalLogs: jest.fn(),
-          },
+          useValue: mockLogsService,
         },
         {
           provide: LogBufferService,
-          useValue: {
-            getRecentLogs: jest.fn(),
-          },
+          useValue: mockLogBufferService,
         },
         {
           provide: JwtService,
-          useValue: {
-            decode: jest.fn(),
-          },
+          useValue: mockJwtService,
         },
       ],
     }).compile();
@@ -69,20 +77,26 @@ describe('LogsGateway', () => {
   });
 
   describe('handleConnection', () => {
-    it('should accept valid token and set userId', async () => {
-      jwtService.decode.mockReturnValue({ userId: 'test-user-id' });
+    it('should accept valid token and set userId', () => {
+      const mockDecode = jwtService.decode as jest.MockedFunction<
+        typeof jwtService.decode
+      >;
+      mockDecode.mockReturnValue({ userId: 'test-user-id' });
 
-      await gateway.handleConnection(mockSocket);
+      gateway.handleConnection(mockSocket);
 
-      expect(jwtService.decode).toHaveBeenCalledWith('test-token');
+      expect(mockDecode).toHaveBeenCalledWith('test-token');
       expect(mockSocket.data.userId).toBe('test-user-id');
       expect(mockSocket.disconnect).not.toHaveBeenCalled();
     });
 
-    it('should disconnect client with invalid token', async () => {
-      jwtService.decode.mockReturnValue(null);
+    it('should disconnect client with invalid token', () => {
+      const mockDecode = jwtService.decode as jest.MockedFunction<
+        typeof jwtService.decode
+      >;
+      mockDecode.mockReturnValue(null);
 
-      await gateway.handleConnection(mockSocket);
+      gateway.handleConnection(mockSocket);
 
       expect(mockSocket.disconnect).toHaveBeenCalled();
     });
@@ -95,13 +109,25 @@ describe('LogsGateway', () => {
 
     it('should subscribe to execution with valid access', async () => {
       const payload = { executionId: 'test-execution-id' };
-      logsService.checkAccess.mockResolvedValue(true);
-      logBufferService.getRecentLogs.mockReturnValue([]);
-      logsService.getHistoricalLogs.mockResolvedValue([]);
+      const mockCheckAccess = logsService.checkAccess as jest.MockedFunction<
+        typeof logsService.checkAccess
+      >;
+      const mockGetRecentLogs =
+        logBufferService.getRecentLogs as jest.MockedFunction<
+          typeof logBufferService.getRecentLogs
+        >;
+      const mockGetHistoricalLogs =
+        logsService.getHistoricalLogs as jest.MockedFunction<
+          typeof logsService.getHistoricalLogs
+        >;
+
+      mockCheckAccess.mockResolvedValue(true);
+      mockGetRecentLogs.mockReturnValue([]);
+      mockGetHistoricalLogs.mockResolvedValue([]);
 
       await gateway.handleSubscribe(mockSocket, payload);
 
-      expect(logsService.checkAccess).toHaveBeenCalledWith(
+      expect(mockCheckAccess).toHaveBeenCalledWith(
         'test-user-id',
         'test-execution-id',
       );
@@ -115,7 +141,10 @@ describe('LogsGateway', () => {
 
     it('should emit error for unauthorized access', async () => {
       const payload = { executionId: 'test-execution-id' };
-      logsService.checkAccess.mockResolvedValue(false);
+      const mockCheckAccess = logsService.checkAccess as jest.MockedFunction<
+        typeof logsService.checkAccess
+      >;
+      mockCheckAccess.mockResolvedValue(false);
 
       await gateway.handleSubscribe(mockSocket, payload);
 
@@ -138,18 +167,31 @@ describe('LogsGateway', () => {
       ];
       const historicalLogs = [
         {
-          logId: '1',
+          id: 1,
           executionId: 'test-execution-id',
           timestamp: new Date(),
           message: 'historical log',
-          level: 'INFO' as const,
+          level: 'info' as const,
           createdAt: new Date(),
+          execution: {} as unknown,
         },
       ];
 
-      logsService.checkAccess.mockResolvedValue(true);
-      logBufferService.getRecentLogs.mockReturnValue(bufferedLogs);
-      logsService.getHistoricalLogs.mockResolvedValue(historicalLogs);
+      const mockCheckAccess = logsService.checkAccess as jest.MockedFunction<
+        typeof logsService.checkAccess
+      >;
+      const mockGetRecentLogs =
+        logBufferService.getRecentLogs as jest.MockedFunction<
+          typeof logBufferService.getRecentLogs
+        >;
+      const mockGetHistoricalLogs =
+        logsService.getHistoricalLogs as jest.MockedFunction<
+          typeof logsService.getHistoricalLogs
+        >;
+
+      mockCheckAccess.mockResolvedValue(true);
+      mockGetRecentLogs.mockReturnValue(bufferedLogs);
+      mockGetHistoricalLogs.mockResolvedValue(historicalLogs);
 
       await gateway.handleSubscribe(mockSocket, payload);
 
@@ -179,15 +221,15 @@ describe('LogsGateway', () => {
     });
   });
 
-  describe('broadcastLogs', () => {
+  describe('handleNewLogs', () => {
     it('should broadcast logs to execution room', () => {
       const executionId = 'test-execution-id';
       const logs = [{ message: 'test log' }];
 
-      gateway.broadcastLogs(executionId, logs);
+      gateway.handleNewLogs({ executionId, logs });
 
       expect(mockServer.to).toHaveBeenCalledWith('execution:test-execution-id');
-      expect(mockServer.emit).toHaveBeenCalledWith('logs:new', logs);
+      expect(mockServer.emit).toHaveBeenCalledWith('logs:new', logs[0]);
     });
   });
 

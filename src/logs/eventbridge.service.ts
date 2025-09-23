@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedisService } from '../common/redis/redis.service';
@@ -13,6 +13,8 @@ import { ConfigService } from '@nestjs/config';
 import { LogStorageService } from './services/log-storage/log-storage.service';
 import { LogLevel } from '../database/entities/execution-log.entity';
 import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
+import { Pipeline } from '../database/entities/pipeline.entity';
+import { PipelineService } from '../pipeline/pipeline.service';
 
 export interface EventBridgeEvent {
   id: string;
@@ -65,8 +67,12 @@ export class EventBridgeService {
     private readonly configService: ConfigService,
     private readonly logStorageService: LogStorageService,
     private readonly cloudwatchService: CloudwatchService,
+    @Inject(forwardRef(() => PipelineService))
+    private readonly pipelineService: PipelineService,
     @InjectRepository(Execution)
     private executionRepository: Repository<Execution>,
+    @InjectRepository(Pipeline)
+    private pipelineRepository: Repository<Pipeline>,
   ) {
     const envValue = this.configService.get<string>('USE_EVENTBRIDGE', 'false');
     this.useEventBridge = envValue === 'true';
@@ -111,13 +117,18 @@ export class EventBridgeService {
       this.logger.log(
         `Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`,
       );
-      
+
       // Debug: Check if this is a Phase Change event
-      if (!buildStatus && event['detail-type'] === 'CodeBuild Build Phase Change') {
+      if (
+        !buildStatus &&
+        event['detail-type'] === 'CodeBuild Build Phase Change'
+      ) {
         const phase = detail['current-phase'];
         const phaseStatus = detail['current-phase-status'];
-        this.logger.log(`Phase change event - Phase: ${phase}, Status: ${phaseStatus}`);
-        
+        this.logger.log(
+          `Phase change event - Phase: ${phase}, Status: ${phaseStatus}`,
+        );
+
         // Phase change 이벤트는 무시하고 State change 이벤트만 처리
         return;
       }
@@ -132,28 +143,35 @@ export class EventBridgeService {
           execution = await this.executionRepository.findOne({
             where: { executionId },
           });
-          
+
           if (execution) {
             // CodeBuild 서비스에서 이미 생성한 execution이 있으면 awsBuildId와 logStreamName 업데이트
             this.logger.log(
               `Found pre-created execution ${executionId}, updating build info and starting CloudWatch polling`,
             );
-            
+
             // logStreamName이 없으면 설정
             if (!execution.logStreamName) {
               execution.logStreamName = executionId;
             }
-            
+
             execution.awsBuildId = buildId;
             await this.executionRepository.save(execution);
-            
+
             // CloudWatch 폴링 시작
             try {
-              this.logger.log(`Attempting to start CloudWatch polling for execution ${executionId}`);
+              this.logger.log(
+                `Attempting to start CloudWatch polling for execution ${executionId}`,
+              );
               await this.cloudwatchService.startPolling(execution);
-              this.logger.log(`Successfully started CloudWatch polling for existing execution ${executionId}`);
+              this.logger.log(
+                `Successfully started CloudWatch polling for existing execution ${executionId}`,
+              );
             } catch (error) {
-              this.logger.error(`Failed to start CloudWatch polling for ${executionId}: ${error.message}`, error.stack);
+              this.logger.error(
+                `Failed to start CloudWatch polling for ${executionId}: ${error.message}`,
+                error.stack,
+              );
             }
           } else {
             // 정말로 새로운 execution이면 생성
@@ -172,7 +190,7 @@ export class EventBridgeService {
 
       // EventBridge 상태 변경 이벤트는 로그로 저장하지 않음
       // CloudWatch 폴링을 통해 실제 빌드 로그를 가져옴
-      
+
       // Status 변경만 WebSocket으로 브로드캐스트
       const statusEvent = {
         executionId: execution.executionId,
@@ -181,6 +199,8 @@ export class EventBridgeService {
         timestamp: new Date().toISOString(),
       };
       await this.broadcastStatusEvent(execution.executionId, statusEvent);
+      const logEvent = this.createLogEvent(execution, event) as unknown;
+      this.broadcastLogEvent(execution.executionId, logEvent);
 
       if (
         buildStatus === 'SUCCEEDED' ||
@@ -225,16 +245,16 @@ export class EventBridgeService {
       this.logger.log(
         `Creating new execution for build ${buildId}, project: ${projectName}`,
       );
-      
+
       // Extract metadata from environment variables in build detail
       const additionalInfo = event.detail['additional-information'];
       const environment = additionalInfo?.environment;
-      
+
       // 환경변수에서 사용자 컨텍스트 추출
       let projectId = '';
       let userId = '';
       let pipelineId = '';
-      
+
       if (environment?.['environment-variables']) {
         const envVars = environment['environment-variables'];
         for (const envVar of envVars) {
@@ -249,7 +269,7 @@ export class EventBridgeService {
           }
         }
       }
-      
+
       // Fallback: Extract from project name if not found in env vars
       if (!projectId) {
         const parts = projectName.split('-');
@@ -257,7 +277,7 @@ export class EventBridgeService {
           projectId = parts[2];
         }
       }
-      
+
       if (!userId) {
         this.logger.warn(
           `EventBridge execution missing userId context for ${buildId}`,
@@ -267,7 +287,7 @@ export class EventBridgeService {
 
       // Extract log stream name from build ID
       const logStreamName = buildId.split(':').pop(); // Get UUID part
-      
+
       const execution = this.executionRepository.create({
         awsBuildId: buildId,
         status: ExecutionStatus.RUNNING,
@@ -291,13 +311,17 @@ export class EventBridgeService {
       this.logger.log(
         `Created execution ${execution.executionId} for build ${buildId} with logStream ${logStreamName}`,
       );
-      
+
       // Start CloudWatch polling for actual build logs
       try {
         await this.cloudwatchService.startPolling(execution);
-        this.logger.log(`Started CloudWatch polling for execution ${execution.executionId}`);
+        this.logger.log(
+          `Started CloudWatch polling for execution ${execution.executionId}`,
+        );
       } catch (error) {
-        this.logger.error(`Failed to start CloudWatch polling: ${error.message}`);
+        this.logger.error(
+          `Failed to start CloudWatch polling: ${error.message}`,
+        );
       }
     } catch (error) {
       this.logger.error(
@@ -381,7 +405,7 @@ export class EventBridgeService {
         return LogLevel.INFO;
     }
   }
-  
+
   private async saveLogToDatabase(
     execution: Execution,
     event: EventBridgeEvent,
@@ -394,7 +418,7 @@ export class EventBridgeService {
         message: logEvent.message,
         level: logEvent.level,
       };
-      
+
       await this.logStorageService.saveLogs([logData]);
       this.logger.debug(
         `Saved log to database for execution ${execution.executionId}`,
@@ -418,10 +442,7 @@ export class EventBridgeService {
     return `[${projectName}] Build ${status}`;
   }
 
-  private async broadcastLogEvent(
-    executionId: string,
-    logEvent: any,
-  ): Promise<void> {
+  private broadcastLogEvent(executionId: string, logEvent: unknown): void {
     try {
       // Events are now broadcasted through LogBufferService event emitter
       this.logger.debug(`Log event ready for execution ${executionId}`);
@@ -432,20 +453,39 @@ export class EventBridgeService {
       );
     }
   }
-  
+
   private async broadcastStatusEvent(
     executionId: string,
     statusEvent: any,
   ): Promise<void> {
     try {
+      // Normalize AWS CodeBuild statuses to internal ExecutionStatus for frontend
+      const normalized = this.mapBuildStatusToExecutionStatus(
+        statusEvent.status,
+      );
       // Status broadcasts now handled through status change methods
-      this.logsGateway.broadcastStatusChange(executionId, statusEvent.status);
+      this.logsGateway.broadcastStatusChange(executionId, normalized);
       this.logger.debug(`Broadcast status event for execution ${executionId}`);
     } catch (error) {
       this.logger.error(
         `Failed to broadcast status event for execution ${executionId}:`,
         error,
       );
+    }
+  }
+
+  private mapBuildStatusToExecutionStatus(status: string): ExecutionStatus {
+    switch (status) {
+      case 'IN_PROGRESS':
+        return ExecutionStatus.RUNNING;
+      case 'SUCCEEDED':
+        return ExecutionStatus.SUCCESS;
+      case 'FAILED':
+      case 'STOPPED':
+        return ExecutionStatus.FAILED;
+      default:
+        // Fallback to PENDING when unknown
+        return ExecutionStatus.PENDING;
     }
   }
 
@@ -460,7 +500,9 @@ export class EventBridgeService {
 
       // Stop CloudWatch polling
       this.cloudwatchService.stopPolling(execution.executionId);
-      this.logger.log(`Stopped CloudWatch polling for execution ${execution.executionId}`);
+      this.logger.log(
+        `Stopped CloudWatch polling for execution ${execution.executionId}`,
+      );
 
       const finalEvent = {
         executionId: execution.executionId,
@@ -469,12 +511,112 @@ export class EventBridgeService {
         completedAt: new Date().toISOString(),
       };
 
-      this.logsGateway.broadcastExecutionComplete(execution.executionId, status);
+      this.logsGateway.broadcastExecutionComplete(
+        execution.executionId,
+        status,
+      );
+      this.logsGateway.broadcastLogs(execution.executionId, [finalEvent]);
+
+      // 🚀 빌드 성공 시 자동 배포 트리거
+      if (status === 'SUCCEEDED') {
+        await this.triggerDeploymentAfterBuild(execution);
+      }
     } catch (error) {
       this.logger.error(
         `Failed to finalize execution ${execution.executionId}:`,
         error,
       );
+    }
+  }
+
+  /**
+   * 빌드 성공 후 자동 배포 트리거
+   * execution.awsBuildId를 통해 pipeline을 찾고 배포 시작
+   */
+  private async triggerDeploymentAfterBuild(
+    execution: Execution,
+  ): Promise<void> {
+    try {
+      this.logger.log(
+        `🚀 빌드 성공! 자동 배포 트리거 시작: buildId=${execution.awsBuildId}`,
+      );
+
+      // awsBuildId로 pipeline 찾기 (빌드 시 pipeline 정보가 CodeBuild에 전달됨)
+      // 하지만 execution에 pipelineId가 직접 저장되어 있지 않으므로,
+      // buildId에서 pipelineId를 추출하거나 metadata에서 찾아야 함
+
+      const projectName = execution.metadata?.projectName as string | undefined;
+      if (!projectName) {
+        this.logger.warn(
+          `프로젝트 이름을 찾을 수 없습니다: execution=${execution.executionId}`,
+        );
+        return;
+      }
+
+      // 프로젝트 이름에서 userId와 projectId 추출
+      // 예: "otto-user123-proj456" -> userId="user123", projectId="proj456"
+      const nameMatch = projectName.match(/^otto-(.+)-(.+)$/);
+      if (!nameMatch) {
+        this.logger.warn(`프로젝트 이름 형식이 잘못되었습니다: ${projectName}`);
+        return;
+      }
+
+      const [, userId, projectId] = nameMatch as [string, string, string];
+      this.logger.log(
+        `   📋 추출된 정보: userId=${userId}, projectId=${projectId}`,
+      );
+
+      // 해당 프로젝트의 가장 최근 파이프라인 찾기 (ecrImageUri가 있는 것)
+      const pipeline = await this.pipelineRepository
+        .createQueryBuilder('pipeline')
+        .leftJoinAndSelect('pipeline.project', 'project')
+        .where('project.userId = :userId', { userId })
+        .andWhere('project.projectId = :projectId', { projectId })
+        .andWhere('pipeline.ecrImageUri IS NOT NULL')
+        .orderBy('pipeline.updatedAt', 'DESC')
+        .getOne();
+
+      if (!pipeline) {
+        this.logger.warn(
+          `배포할 파이프라인을 찾을 수 없습니다: userId=${userId}, projectId=${projectId}`,
+        );
+        return;
+      }
+
+      this.logger.log(`   ✅ 파이프라인 발견: ${pipeline.pipelineId}`);
+
+      // 자동 배포 시작
+      this.logger.log(`   🚀 자동 배포 시작...`);
+      const deploymentResult =
+        await this.pipelineService.deployAfterBuildSuccess(
+          pipeline.pipelineId,
+          userId,
+        );
+
+      this.logger.log(`🎉 자동 배포 완료!`);
+      this.logger.log(`   🌐 배포 URL: https://${deploymentResult.deployUrl}`);
+      this.logger.log(`   🔗 ECS 서비스: ${deploymentResult.ecsServiceArn}`);
+
+      // 배포 완료 이벤트 브로드캐스트
+      const deployEvent = {
+        executionId: execution.executionId,
+        type: 'deployment-complete',
+        deployUrl: deploymentResult.deployUrl,
+        ecsServiceArn: deploymentResult.ecsServiceArn,
+        timestamp: new Date().toISOString(),
+      };
+      this.logsGateway.broadcastLogs(execution.executionId, [deployEvent]);
+    } catch (error) {
+      this.logger.error(`❌ 자동 배포 실패: ${error}`);
+
+      // 배포 실패 이벤트 브로드캐스트
+      const errorEvent = {
+        executionId: execution.executionId,
+        type: 'deployment-failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      };
+      this.logsGateway.broadcastLogs(execution.executionId, [errorEvent]);
     }
   }
 

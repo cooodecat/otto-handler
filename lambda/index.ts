@@ -13,7 +13,10 @@ interface CodeBuildEventDetail {
 }
 
 export const handler = async (
-  event: AWSEventBridgeEvent<'CodeBuild Build State Change', CodeBuildEventDetail>
+  event: AWSEventBridgeEvent<
+    'CodeBuild Build State Change',
+    CodeBuildEventDetail
+  >,
 ): Promise<{ statusCode: number; body: string }> => {
   console.log('Received EventBridge event:', JSON.stringify(event, null, 2));
 
@@ -67,7 +70,8 @@ export const handler = async (
       statusCode: 500,
       body: JSON.stringify({
         success: false,
-        message: error instanceof Error ? error.message : 'Failed to process event',
+        message:
+          error instanceof Error ? error.message : 'Failed to process event',
         eventId: event.id,
       }),
     };
@@ -76,10 +80,10 @@ export const handler = async (
 
 async function sendToBackend(path: string, data: any): Promise<any> {
   const url = `${BACKEND_URL}${path}`;
-  
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
-  
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -90,15 +94,17 @@ async function sendToBackend(path: string, data: any): Promise<any> {
       body: JSON.stringify(data),
       signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     const responseBody = await response.text();
-    
+
     if (!response.ok) {
-      throw new Error(`Backend returned status ${response.status}: ${responseBody}`);
+      throw new Error(
+        `Backend returned status ${response.status}: ${responseBody}`,
+      );
     }
-    
+
     try {
       return JSON.parse(responseBody);
     } catch (error) {
@@ -106,7 +112,6 @@ async function sendToBackend(path: string, data: any): Promise<any> {
     }
   } catch (error) {
     clearTimeout(timeoutId);
-    
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         throw new Error('Request timeout after 30 seconds');

@@ -119,7 +119,7 @@ export class ProjectService {
       rollbackPromises.push(
         this.codeBuildService
           .deleteProject(resources.codebuildProject)
-          .catch((err) =>
+          .catch((err: Error) =>
             this.logger.error(
               `Failed to delete CodeBuild project: ${err.message}`,
             ),
@@ -135,7 +135,7 @@ export class ProjectService {
       rollbackPromises.push(
         this.codeBuildService
           .deleteEcrRepository(resources.ecrRepository)
-          .catch((err) =>
+          .catch((err: Error) =>
             this.logger.error(
               `Failed to delete ECR repository: ${err.message}`,
             ),
@@ -163,7 +163,7 @@ export class ProjectService {
       rollbackPromises.push(
         this.codeBuildService
           .deleteCloudWatchLogGroup(resources.cloudwatchLogGroup)
-          .catch((err) =>
+          .catch((err: Error) =>
             this.logger.error(
               `Failed to delete CloudWatch log group: ${err.message}`,
             ),

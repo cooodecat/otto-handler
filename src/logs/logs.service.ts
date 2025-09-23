@@ -90,7 +90,7 @@ export class LogsService {
       } catch (error) {
         this.logger.error(
           `Failed to start polling for execution ${savedExecution.executionId}:`,
-          error,
+          error as Error,
         );
       }
     }
@@ -167,7 +167,7 @@ export class LogsService {
   async updateExecutionStatus(
     executionId: string,
     status: ExecutionStatus,
-    metadata?: any,
+    metadata?: unknown,
   ): Promise<void> {
     const execution = await this.executionRepository.findOne({
       where: { executionId },
@@ -179,7 +179,10 @@ export class LogsService {
 
     execution.status = status;
     if (metadata) {
-      execution.metadata = { ...(execution.metadata as object), ...metadata };
+      execution.metadata = {
+        ...(execution.metadata as object),
+        ...(metadata as object),
+      };
     }
 
     if (

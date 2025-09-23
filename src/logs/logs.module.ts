@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
 import { LogBufferService } from './services/log-buffer/log-buffer.service';
@@ -17,6 +17,7 @@ import { LogsGateway } from './logs.gateway';
 import { JwtService } from '../auth/jwt.service';
 import { TestLogsController } from './test-logs.controller';
 import { RedisModule } from '../common/redis/redis.module';
+import { PipelineModule } from '../pipeline/pipeline.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { RedisModule } from '../common/redis/redis.module';
       Pipeline,
     ]),
     RedisModule,
+    forwardRef(() => PipelineModule),
   ],
   controllers: [LogsController, TestLogsController, EventBridgeController],
   providers: [

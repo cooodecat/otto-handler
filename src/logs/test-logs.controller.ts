@@ -85,7 +85,7 @@ export class TestLogsController {
 
     // If no delay, add all logs to buffer at once (this will trigger broadcast)
     if (!dto.delay || dto.delay === 0) {
-      this.logBuffer.addLogs(executionId, logs as LogEntry[]);
+      this.logBuffer.addLogs(executionId, logs);
     }
 
     return {

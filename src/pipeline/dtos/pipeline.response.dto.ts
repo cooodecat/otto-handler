@@ -30,6 +30,11 @@ export interface PipelineResponseDto {
   imageTag?: string | null;
 
   /**
+   * 배포 옵션 (포트 및 커맨드)
+   */
+  deployOption?: { port: number; command: string } | null;
+
+  /**
    * 생성일
    */
   createdAt: Date;

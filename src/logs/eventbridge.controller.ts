@@ -4,7 +4,6 @@ import {
   Body,
   HttpCode,
   HttpStatus,
-  UseGuards,
   Headers,
   BadRequestException,
   Logger,
@@ -67,6 +66,10 @@ export class EventBridgeController {
       this.logger.log(`Event detail-type: ${event['detail-type']}`);
       this.logger.log(`Event detail: ${JSON.stringify(event.detail)}`);
 
+      // Debug: Log full event details
+      this.logger.log(`Event detail-type: ${event['detail-type']}`);
+      this.logger.log(`Event detail: ${JSON.stringify(event.detail)}`);
+
       if (!event.id || !event.source || !event.detail) {
         throw new BadRequestException('Invalid event format');
       }
@@ -87,16 +90,17 @@ export class EventBridgeController {
         success: true,
         message: 'Event processed successfully',
       };
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error('Failed to process event:', error);
 
       if (error instanceof BadRequestException) {
         throw error;
       }
 
+      const errorObj = error as { message?: string };
       return {
         success: false,
-        message: error.message || 'Failed to process event',
+        message: errorObj.message || 'Failed to process event',
       };
     }
   }
@@ -105,12 +109,12 @@ export class EventBridgeController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Test EventBridge endpoint' })
   @ApiResponse({ status: 200, description: 'Test successful' })
-  async test(): Promise<{
+  test(): {
     success: boolean;
     message: string;
     eventBridgeEnabled: boolean;
     timestamp: string;
-  }> {
+  } {
     return {
       success: true,
       message: 'EventBridge endpoint is working',
