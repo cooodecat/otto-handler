@@ -282,7 +282,10 @@ export class LogsController {
       awsBuildId: execution.awsBuildId,
       awsDeploymentId: execution.awsDeploymentId,
       logStreamName: execution.logStreamName,
-      metadata: execution.metadata,
+      metadata: {
+        ...execution.metadata,
+        pipelineName: execution.pipeline?.pipelineName || execution.metadata?.pipelineName || 'Unknown Pipeline'
+      },
       startedAt: execution.startedAt,
       completedAt: execution.completedAt,
       updatedAt: execution.updatedAt,

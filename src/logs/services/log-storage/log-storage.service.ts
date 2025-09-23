@@ -12,6 +12,9 @@ interface LogEvent {
   timestamp: Date;
   message: string;
   level: LogLevel;
+  phase?: string;
+  step?: string;
+  stepOrder?: number;
 }
 
 @Injectable()
@@ -42,6 +45,9 @@ export class LogStorageService {
         executionLog.timestamp = log.timestamp;
         executionLog.message = log.message;
         executionLog.level = log.level;
+        executionLog.phase = log.phase;
+        executionLog.step = log.step;
+        executionLog.stepOrder = log.stepOrder;
         return executionLog;
       });
 

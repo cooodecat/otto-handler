@@ -19,6 +19,9 @@ interface LogEvent {
   timestamp: Date;
   message: string;
   level: LogLevel;
+  phase?: string;
+  step?: string;
+  stepOrder?: number;
 }
 
 @Injectable()
@@ -47,6 +50,10 @@ export class CloudwatchService {
   }
 
   async startPolling(execution: Execution): Promise<void> {
+    this.logger.log(
+      `Starting CloudWatch polling for execution ${execution.executionId}`,
+    );
+    
     // Mock implementation for development
     if (this.configService.get<boolean>('USE_MOCK_DATA', false)) {
       this.logger.log(
@@ -54,21 +61,36 @@ export class CloudwatchService {
       );
       return;
     }
+    
+    this.logger.log(
+      `Looking up project ${execution.projectId} for CloudWatch config`,
+    );
+    
     const project = await this.projectRepository.findOne({
       where: { projectId: execution.projectId },
     });
 
     if (!project?.cloudwatchLogGroup) {
+      this.logger.error(
+        `CloudWatch log group not found for project ${execution.projectId}`,
+      );
       throw new Error(
         `CloudWatch log group not found for project ${execution.projectId}`,
       );
     }
 
     if (!execution.logStreamName) {
+      this.logger.error(
+        `Log stream name not found for execution ${execution.executionId}`,
+      );
       throw new Error(
         `Log stream name not found for execution ${execution.executionId}`,
       );
     }
+    
+    this.logger.log(
+      `CloudWatch config found - LogGroup: ${project.cloudwatchLogGroup}, LogStream: ${execution.logStreamName}`,
+    );
 
     let nextToken: string | undefined;
     let retryCount = 0;
@@ -88,21 +110,29 @@ export class CloudwatchService {
           await this.client.send(command);
 
         if (response.events && response.events.length > 0) {
-          const logs: LogEvent[] = response.events.map((event) => ({
-            executionId: execution.executionId,
-            timestamp: new Date(event.timestamp!),
-            message: event.message!,
-            level: this.detectLogLevel(event.message!),
-          }));
+          const logs: LogEvent[] = response.events.map((event) => {
+            const { phase, step, stepOrder } = this.parseLogPhaseAndStep(event.message!);
+            return {
+              executionId: execution.executionId,
+              timestamp: new Date(event.timestamp!),
+              message: event.message!,
+              level: this.detectLogLevel(event.message!),
+              phase,
+              step,
+              stepOrder,
+            };
+          });
 
           // DB에 저장
           await this.logStorage.saveLogs(logs);
 
           // 버퍼에 추가 (실시간 전송용)
           this.logBuffer.addLogs(execution.executionId, logs);
-
-          // TODO: WebSocket 브로드캐스트 (Phase 3에서 구현)
-          // this.logsGateway.broadcastLogs(execution.executionId, logs);
+          
+          // LogBufferService will emit events for WebSocket broadcasting
+          this.logger.debug(
+            `Added ${logs.length} logs to buffer for execution ${execution.executionId}`,
+          );
         }
 
         nextToken = response.nextForwardToken;
@@ -168,5 +198,62 @@ export class CloudwatchService {
       return LogLevel.WARNING;
     }
     return LogLevel.INFO;
+  }
+
+  private parseLogPhaseAndStep(message: string): { phase?: string; step?: string; stepOrder?: number } {
+    // Common patterns from CodeBuild logs
+    const patterns = [
+      // [Container] Phase context
+      /^\[Container\]\s+\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+Phase context status code:\s+Message:\s+(.*)/,
+      // Phase complete
+      /^\[Container\]\s+\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+Phase complete:\s+(\w+)/,
+      // Entering phase
+      /^\[Container\]\s+\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+Entering phase\s+(\w+)/,
+      // Running command
+      /^\[Container\]\s+\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+Running command\s+(.*)/,
+    ];
+
+    let phase: string | undefined;
+    let step: string | undefined;
+    let stepOrder: number | undefined;
+
+    // Check for phase markers
+    if (message.includes('DOWNLOAD_SOURCE')) {
+      phase = 'DOWNLOAD_SOURCE';
+      step = 'Downloading source code';
+      stepOrder = 1;
+    } else if (message.includes('INSTALL')) {
+      phase = 'INSTALL';
+      step = 'Installing dependencies';
+      stepOrder = 2;
+    } else if (message.includes('PRE_BUILD')) {
+      phase = 'PRE_BUILD';
+      step = 'Pre-build setup';
+      stepOrder = 3;
+    } else if (message.includes('BUILD')) {
+      phase = 'BUILD';
+      step = 'Building application';
+      stepOrder = 4;
+    } else if (message.includes('POST_BUILD')) {
+      phase = 'POST_BUILD';
+      step = 'Post-build tasks';
+      stepOrder = 5;
+    } else if (message.includes('UPLOAD_ARTIFACTS')) {
+      phase = 'UPLOAD_ARTIFACTS';
+      step = 'Uploading artifacts';
+      stepOrder = 6;
+    } else if (message.includes('FINALIZING')) {
+      phase = 'FINALIZING';
+      step = 'Finalizing build';
+      stepOrder = 7;
+    }
+
+    // Extract specific step from "Running command" messages
+    const runningCommandMatch = message.match(/Running command\s+(.*)/);
+    if (runningCommandMatch) {
+      step = runningCommandMatch[1].trim();
+    }
+
+    return { phase, step, stepOrder };
   }
 }
