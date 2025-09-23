@@ -15,7 +15,10 @@ interface CodeBuildEventDetail {
 }
 
 export const handler = async (
-  event: AWSEventBridgeEvent<'CodeBuild Build State Change', CodeBuildEventDetail>
+  event: AWSEventBridgeEvent<
+    'CodeBuild Build State Change',
+    CodeBuildEventDetail
+  >,
 ): Promise<{ statusCode: number; body: string }> => {
   console.log('Received EventBridge event:', JSON.stringify(event, null, 2));
 
@@ -51,7 +54,8 @@ export const handler = async (
       statusCode: 500,
       body: JSON.stringify({
         success: false,
-        message: error instanceof Error ? error.message : 'Failed to process event',
+        message:
+          error instanceof Error ? error.message : 'Failed to process event',
         eventId: event.id,
       }),
     };
@@ -89,10 +93,16 @@ async function sendToBackend(path: string, data: any): Promise<any> {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve(parsedResponse);
           } else {
-            reject(new Error(`Backend returned status ${res.statusCode}: ${responseBody}`));
+            reject(
+              new Error(
+                `Backend returned status ${res.statusCode}: ${responseBody}`,
+              ),
+            );
           }
         } catch (error) {
-          reject(new Error(`Failed to parse backend response: ${responseBody}`));
+          reject(
+            new Error(`Failed to parse backend response: ${responseBody}`),
+          );
         }
       });
     });
