@@ -179,7 +179,7 @@ export class LogsService {
 
     execution.status = status;
     if (metadata) {
-      execution.metadata = { ...execution.metadata, ...metadata };
+      execution.metadata = { ...(execution.metadata as object), ...metadata };
     }
 
     if (
@@ -220,7 +220,7 @@ export class LogsService {
     return dbLogs;
   }
 
-  async getBufferedLogs(executionId: string, limit?: number): Promise<any[]> {
+  getBufferedLogs(executionId: string, limit?: number): unknown[] {
     return this.logBuffer.getRecentLogs(executionId, limit);
   }
 
@@ -270,7 +270,7 @@ export class LogsService {
     ) {
       try {
         return await this.logStorage.getExecutionLogs(executionId, limit);
-      } catch (error) {
+      } catch {
         this.logger.warn(
           `No historical logs for test execution ${executionId}`,
         );
@@ -280,12 +280,12 @@ export class LogsService {
     return this.logStorage.getExecutionLogs(executionId, limit);
   }
 
-  async clearExecutionBuffer(executionId: string): Promise<void> {
+  clearExecutionBuffer(executionId: string): void {
     this.logBuffer.clearBuffer(executionId);
     this.logger.log(`Cleared buffer for execution ${executionId}`);
   }
 
-  async getBufferStats(): Promise<any> {
+  getBufferStats(): Record<string, unknown> {
     return {
       buffers: this.logBuffer.getBufferStats(),
       totalLogs: this.logBuffer.getTotalBufferedLogs(),

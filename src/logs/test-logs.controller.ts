@@ -7,6 +7,7 @@ import {
   ExecutionType,
   ExecutionStatus,
 } from '../database/entities/execution.entity';
+import { LogEntry } from './types/log.types';
 
 interface TestLogDto {
   message: string;
@@ -25,10 +26,10 @@ export class TestLogsController {
 
   @Post('executions/:id/log')
   @ApiOperation({ summary: 'Send test log to execution' })
-  async sendTestLog(
+  sendTestLog(
     @Param('id') executionId: string,
     @Body() dto: TestLogDto,
-  ): Promise<any> {
+  ): Record<string, unknown> {
     const log = {
       executionId,
       timestamp: new Date(),
@@ -51,11 +52,11 @@ export class TestLogsController {
 
   @Post('executions/:id/batch-logs')
   @ApiOperation({ summary: 'Send batch of test logs' })
-  async sendBatchLogs(
+  sendBatchLogs(
     @Param('id') executionId: string,
     @Body() dto: { count: number; delay?: number },
-  ): Promise<any> {
-    const logs: any[] = [];
+  ): Record<string, unknown> {
+    const logs: LogEntry[] = [];
     const phases = ['BUILD', 'TEST', 'DEPLOY', 'COMPLETE'];
     const levels = ['info', 'warning', 'error'];
 
@@ -79,7 +80,7 @@ export class TestLogsController {
     }
 
     // Add all logs to buffer
-    this.logBuffer.addLogs(executionId, logs);
+    this.logBuffer.addLogs(executionId, logs as LogEntry[]);
 
     // If no delay, send all at once
     if (!dto.delay || dto.delay === 0) {
@@ -95,10 +96,10 @@ export class TestLogsController {
 
   @Post('executions/:id/status')
   @ApiOperation({ summary: 'Update execution status' })
-  async updateStatus(
+  updateStatus(
     @Param('id') executionId: string,
     @Body() dto: { status: string },
-  ): Promise<any> {
+  ): Record<string, unknown> {
     this.logsGateway.broadcastStatusChange(executionId, dto.status);
 
     return {
@@ -109,7 +110,7 @@ export class TestLogsController {
 
   @Get('executions/:id/buffer')
   @ApiOperation({ summary: 'Get buffered logs for execution' })
-  async getBufferedLogs(@Param('id') executionId: string): Promise<any> {
+  getBufferedLogs(@Param('id') executionId: string): Record<string, unknown> {
     const logs = this.logBuffer.getRecentLogs(executionId);
 
     return {
