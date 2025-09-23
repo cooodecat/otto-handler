@@ -91,8 +91,8 @@ export class LogsController {
   @ApiQuery({ name: 'executionType', required: false, enum: ExecutionType })
   @ApiQuery({ name: 'pipelineId', required: false, type: String })
   @ApiQuery({ name: 'projectId', required: false, type: String })
-  @ApiQuery({ name: 'limit', required: false, type: Number, default: 20 })
-  @ApiQuery({ name: 'offset', required: false, type: Number, default: 0 })
+  @ApiQuery({ name: 'limit', required: true, type: Number, default: 20 })
+  @ApiQuery({ name: 'offset', required: true, type: Number, default: 0 })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Returns list of executions',
@@ -103,8 +103,8 @@ export class LogsController {
     @Query('executionType') executionType?: ExecutionType,
     @Query('pipelineId') pipelineId?: string,
     @Query('projectId') projectId?: string,
-    @Query('limit') limit: number = 20,
-    @Query('offset') offset: number = 0,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
     @Request() req?: IRequestType,
   ): Promise<ExecutionResponseDto[]> {
     try {
@@ -114,8 +114,8 @@ export class LogsController {
         executionType,
         pipelineId,
         projectId,
-        limit,
-        offset,
+        limit: limit || 20,
+        offset: offset || 0,
       });
 
       return executions.map((execution) =>
