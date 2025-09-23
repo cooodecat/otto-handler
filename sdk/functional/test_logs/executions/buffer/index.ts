@@ -7,6 +7,8 @@
 import type { IConnection } from "@nestia/fetcher";
 import { PlainFetcher } from "@nestia/fetcher/lib/PlainFetcher";
 
+import type { Recordstringunknown } from "../../../../structures/Recordstringunknown";
+
 /**
  * @controller TestLogsController.getBufferedLogs
  * @path GET /test-logs/executions/:id/buffer
@@ -24,7 +26,7 @@ export async function getBufferedLogs(
   });
 }
 export namespace getBufferedLogs {
-  export type Output = any;
+  export type Output = Recordstringunknown;
 
   export const METADATA = {
     method: "GET",

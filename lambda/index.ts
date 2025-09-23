@@ -76,10 +76,10 @@ export const handler = async (
 
 async function sendToBackend(path: string, data: any): Promise<any> {
   const url = `${BACKEND_URL}${path}`;
-  
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
-  
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -90,15 +90,15 @@ async function sendToBackend(path: string, data: any): Promise<any> {
       body: JSON.stringify(data),
       signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     const responseBody = await response.text();
-    
+
     if (!response.ok) {
       throw new Error(`Backend returned status ${response.status}: ${responseBody}`);
     }
-    
+
     try {
       return JSON.parse(responseBody);
     } catch (error) {
@@ -106,7 +106,7 @@ async function sendToBackend(path: string, data: any): Promise<any> {
     }
   } catch (error) {
     clearTimeout(timeoutId);
-    
+
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         throw new Error('Request timeout after 30 seconds');
