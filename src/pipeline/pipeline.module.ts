@@ -5,9 +5,13 @@ import { PipelineController } from './pipeline.controller';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { Project } from '../database/entities/project.entity';
 import { User } from '../database/entities/user.entity';
+import { CodeBuildModule } from '../codebuild/codebuild.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Pipeline, Project, User])],
+  imports: [
+    TypeOrmModule.forFeature([Pipeline, Project, User]),
+    CodeBuildModule, // CodeBuild 모듈 추가
+  ],
   providers: [PipelineService],
   controllers: [PipelineController],
   exports: [PipelineService],

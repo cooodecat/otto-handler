@@ -163,4 +163,74 @@ export class PipelineController {
     );
     return { count };
   }
+
+  /**
+   * @tag pipeline
+   * @summary 파이프라인 빌드 실행
+   */
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.NOT_FOUND,
+    description: '파이프라인을 찾을 수 없음',
+  })
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '인증 실패',
+  })
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'CodeBuild 프로젝트가 설정되지 않음',
+  })
+  @HttpCode(200)
+  @TypedRoute.Post('/:pipelineId/execute')
+  @AuthGuard()
+  async executePipeline(
+    @TypedParam('pipelineId') pipelineId: string,
+    @Req() req: IRequestType,
+  ): Promise<{
+    buildId: string;
+    buildNumber: string;
+    imageTag: string;
+    ecrImageUri: string;
+  }> {
+    return await this.pipelineService.executePipeline(
+      pipelineId,
+      req.user.userId,
+    );
+  }
+
+  /**
+   * @tag pipeline
+   * @summary 빌드 상태 조회
+   */
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.NOT_FOUND,
+    description: '파이프라인 또는 빌드를 찾을 수 없음',
+  })
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '인증 실패',
+  })
+  @HttpCode(200)
+  @TypedRoute.Get('/:pipelineId/builds/:buildId/status')
+  @AuthGuard()
+  async getBuildStatus(
+    @TypedParam('pipelineId') pipelineId: string,
+    @TypedParam('buildId') buildId: string,
+    @Req() req: IRequestType,
+  ): Promise<{
+    buildStatus: string;
+    currentPhase?: string;
+    startTime?: Date;
+    endTime?: Date;
+    logs?: {
+      groupName?: string;
+      streamName?: string;
+    };
+  }> {
+    return await this.pipelineService.getBuildStatus(
+      pipelineId,
+      buildId,
+      req.user.userId,
+    );
+  }
 }
