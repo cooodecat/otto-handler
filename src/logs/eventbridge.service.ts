@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedisService } from '../common/redis/redis.service';
 import { LogsGateway } from './logs.gateway';
-import { Execution, ExecutionStatus } from '../database/entities/execution.entity';
+import { Execution, ExecutionStatus, ExecutionType } from '../database/entities/execution.entity';
 import { LogsService } from './logs.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -73,6 +73,7 @@ export class EventBridgeService {
     const { id: eventId, detail } = event;
 
     try {
+      // 이벤트 ID로 중복 체크 (네트워크 재시도 방지)
       const isDuplicate = !(await this.checkDuplicate(eventId));
       if (isDuplicate) {
         this.logger.debug(`Skipping duplicate event: ${eventId}`);
@@ -87,6 +88,7 @@ export class EventBridgeService {
 
       this.logger.log(`Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`);
 
+      // buildId로 기존 실행 찾기 - 동일한 빌드의 연속된 이벤트는 같은 execution 사용
       const execution = await this.findExecutionByBuildId(buildId);
       
       if (!execution) {
@@ -137,6 +139,7 @@ export class EventBridgeService {
       const execution = this.executionRepository.create({
         awsBuildId: buildId,
         status: ExecutionStatus.RUNNING,
+        executionType: ExecutionType.BUILD, // CodeBuild는 항상 build 타입
         startedAt: new Date(event.time),
         metadata: {
           source: 'eventbridge',

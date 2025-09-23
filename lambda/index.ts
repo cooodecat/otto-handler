@@ -51,7 +51,7 @@ export const handler = async (
       statusCode: 500,
       body: JSON.stringify({
         success: false,
-        message: error.message || 'Failed to process event',
+        message: error instanceof Error ? error.message : 'Failed to process event',
         eventId: event.id,
       }),
     };

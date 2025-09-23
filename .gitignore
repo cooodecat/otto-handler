@@ -46,6 +46,13 @@ lerna-debug.log*
 .temp
 .tmp
 
+# Lambda build artifacts
+lambda/dist/
+lambda/node_modules/
+lambda/package-lock.json
+lambda/lambda-deployment.zip
+lambda/trust-policy.json
+
 # Runtime data
 pids
 *.pid
@@ -56,3 +63,4 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /otto-sdk
 /sdk
+lambda-deployment.zip
