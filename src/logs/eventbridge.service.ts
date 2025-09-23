@@ -10,6 +10,9 @@ import {
 } from '../database/entities/execution.entity';
 import { LogsService } from './logs.service';
 import { ConfigService } from '@nestjs/config';
+import { LogStorageService } from './services/log-storage/log-storage.service';
+import { LogLevel } from '../database/entities/execution-log.entity';
+import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
 
 export interface EventBridgeEvent {
   id: string;
@@ -35,6 +38,13 @@ export interface CodeBuildDetail {
     initiator?: string;
     'start-time'?: string;
     'end-time'?: string;
+    environment?: {
+      'environment-variables'?: Array<{
+        name: string;
+        value: string;
+        type?: string;
+      }>;
+    };
     logs?: {
       'group-name'?: string;
       'stream-name'?: string;
@@ -53,15 +63,15 @@ export class EventBridgeService {
     private readonly logsGateway: LogsGateway,
     private readonly logsService: LogsService,
     private readonly configService: ConfigService,
+    private readonly logStorageService: LogStorageService,
+    private readonly cloudwatchService: CloudwatchService,
     @InjectRepository(Execution)
     private executionRepository: Repository<Execution>,
   ) {
-    this.useEventBridge = this.configService.get<boolean>(
-      'USE_EVENTBRIDGE',
-      false,
-    );
+    const envValue = this.configService.get<string>('USE_EVENTBRIDGE', 'false');
+    this.useEventBridge = envValue === 'true';
     this.logger.log(
-      `EventBridge integration: ${this.useEventBridge ? 'Enabled' : 'Disabled'}`,
+      `EventBridge integration: ${this.useEventBridge ? 'Enabled' : 'Disabled'} (USE_EVENTBRIDGE=${envValue})`,
     );
   }
 
@@ -72,7 +82,7 @@ export class EventBridgeService {
         this.logger.debug(`Duplicate event detected: ${eventId}`);
       }
       return isNew;
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error(
         `Failed to check duplicate for event ${eventId}:`,
         error,
@@ -102,33 +112,97 @@ export class EventBridgeService {
         `Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`,
       );
 
+      // Debug: Check if this is a Phase Change event
+      if (
+        !buildStatus &&
+        event['detail-type'] === 'CodeBuild Build Phase Change'
+      ) {
+        const phase = detail['current-phase'];
+        const phaseStatus = detail['current-phase-status'] as string;
+        this.logger.log(
+          `Phase change event - Phase: ${phase}, Status: ${phaseStatus}`,
+        );
+
+        // Phase change 이벤트는 무시하고 State change 이벤트만 처리
+        return;
+      }
+
       // buildId로 기존 실행 찾기 - 동일한 빌드의 연속된 이벤트는 같은 execution 사용
-      const execution = await this.findExecutionByBuildId(buildId);
+      let execution = await this.findExecutionByBuildId(buildId);
 
       if (!execution) {
         if (buildStatus === 'IN_PROGRESS') {
-          await this.createNewExecution(buildId, projectName, event);
+          // buildId에서 UUID 추출하여 executionId로 사용된 execution이 있는지 확인
+          const executionId = buildId.split(':').pop();
+          execution = await this.executionRepository.findOne({
+            where: { executionId },
+          });
+
+          if (execution) {
+            // CodeBuild 서비스에서 이미 생성한 execution이 있으면 awsBuildId와 logStreamName 업데이트
+            this.logger.log(
+              `Found pre-created execution ${executionId}, updating build info and starting CloudWatch polling`,
+            );
+
+            // logStreamName이 없으면 설정
+            if (!execution.logStreamName) {
+              execution.logStreamName = executionId;
+            }
+
+            execution.awsBuildId = buildId;
+            await this.executionRepository.save(execution);
+
+            // CloudWatch 폴링 시작
+            try {
+              this.logger.log(
+                `Attempting to start CloudWatch polling for execution ${executionId}`,
+              );
+              await this.cloudwatchService.startPolling(execution);
+              this.logger.log(
+                `Successfully started CloudWatch polling for existing execution ${executionId}`,
+              );
+            } catch (error: unknown) {
+              const errorObj = error as { message?: string; stack?: string };
+              this.logger.error(
+                `Failed to start CloudWatch polling for ${executionId}: ${errorObj.message || 'Unknown error'}`,
+                errorObj.stack,
+              );
+            }
+          } else {
+            // 정말로 새로운 execution이면 생성
+            await this.createNewExecution(buildId, projectName, event);
+            return;
+          }
         } else {
           this.logger.warn(
             `No execution found for build ${buildId}, status: ${buildStatus}`,
           );
+          return;
         }
-        return;
       }
 
       await this.updateExecutionStatus(execution, buildStatus, detail);
 
-      const logEvent = this.createLogEvent(execution, event);
-      await this.broadcastLogEvent(execution.executionId, logEvent);
+      // EventBridge 상태 변경 이벤트는 로그로 저장하지 않음
+      // CloudWatch 폴링을 통해 실제 빌드 로그를 가져옴
+
+      // Status 변경만 WebSocket으로 브로드캐스트
+      const statusEvent = {
+        executionId: execution.executionId,
+        type: 'status-change',
+        status: buildStatus,
+        timestamp: new Date().toISOString(),
+      };
+      this.broadcastStatusEvent(execution.executionId, statusEvent);
 
       if (
         buildStatus === 'SUCCEEDED' ||
         buildStatus === 'FAILED' ||
         buildStatus === 'STOPPED'
       ) {
-        await this.finalizeExecution(execution, buildStatus);
+        this.finalizeExecution(execution, buildStatus);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error(
         `Failed to process EventBridge event ${eventId}:`,
         error,
@@ -146,7 +220,7 @@ export class EventBridgeService {
         relations: ['project'],
       });
       return execution;
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error(
         `Failed to find execution for build ${buildId}:`,
         error,
@@ -165,24 +239,85 @@ export class EventBridgeService {
         `Creating new execution for build ${buildId}, project: ${projectName}`,
       );
 
+      // Extract metadata from environment variables in build detail
+      const additionalInfo = event.detail['additional-information'];
+      const environment = additionalInfo?.environment;
+
+      // 환경변수에서 사용자 컨텍스트 추출
+      let projectId = '';
+      let userId = '';
+      let pipelineId = '';
+
+      if (environment?.['environment-variables']) {
+        const envVars = environment['environment-variables'];
+        for (const envVar of envVars) {
+          if (envVar.name === 'OTTO_USER_ID') {
+            userId = envVar.value;
+          } else if (envVar.name === 'OTTO_PROJECT_ID') {
+            projectId = envVar.value;
+          } else if (envVar.name === 'OTTO_PIPELINE_ID') {
+            pipelineId = envVar.value;
+          } else if (envVar.name === 'PIPELINE_ID') {
+            pipelineId = pipelineId || envVar.value; // fallback
+          }
+        }
+      }
+
+      // Fallback: Extract from project name if not found in env vars
+      if (!projectId) {
+        const parts = projectName.split('-');
+        if (parts.length >= 4) {
+          projectId = parts[2];
+        }
+      }
+
+      if (!userId) {
+        this.logger.warn(
+          `EventBridge execution missing userId context for ${buildId}`,
+        );
+        userId = 'eventbridge-user'; // Default fallback
+      }
+
+      // Extract log stream name from build ID
+      const logStreamName = buildId.split(':').pop(); // Get UUID part
+
       const execution = this.executionRepository.create({
         awsBuildId: buildId,
         status: ExecutionStatus.RUNNING,
-        executionType: ExecutionType.BUILD, // CodeBuild는 항상 build 타입
+        executionType: ExecutionType.BUILD,
         startedAt: new Date(event.time),
+        projectId: projectId || 'unknown',
+        userId: userId,
+        pipelineId: pipelineId || '',
+        logStreamName: logStreamName, // CloudWatch 로그 스트림명 설정
         metadata: {
           source: 'eventbridge',
           projectName,
           region: event.region,
           account: event.account,
+          logGroup: additionalInfo?.logs?.['group-name'],
+          logStream: additionalInfo?.logs?.['stream-name'] || logStreamName,
         },
       });
 
       await this.executionRepository.save(execution);
       this.logger.log(
-        `Created execution ${execution.executionId} for build ${buildId}`,
+        `Created execution ${execution.executionId} for build ${buildId} with logStream ${logStreamName}`,
       );
-    } catch (error) {
+
+      // Start CloudWatch polling for actual build logs
+      try {
+        await this.cloudwatchService.startPolling(execution);
+        this.logger.log(
+          `Started CloudWatch polling for execution ${execution.executionId}`,
+        );
+      } catch (error: unknown) {
+        const errorObj = error as { message?: string };
+        this.logger.error(
+          `Failed to start CloudWatch polling: ${errorObj.message || 'Unknown error'}`,
+        );
+      }
+    } catch (error: unknown) {
       this.logger.error(
         `Failed to create execution for build ${buildId}:`,
         error,
@@ -224,7 +359,7 @@ export class EventBridgeService {
       this.logger.debug(
         `Updated execution ${execution.executionId} status to ${execution.status}`,
       );
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error(
         `Failed to update execution ${execution.executionId}:`,
         error,
@@ -253,15 +388,40 @@ export class EventBridgeService {
     };
   }
 
-  private getLogLevel(status: string): string {
+  private getLogLevel(status: string): LogLevel {
     switch (status) {
       case 'SUCCEEDED':
-        return 'info';
+        return LogLevel.INFO;
       case 'FAILED':
       case 'STOPPED':
-        return 'error';
+        return LogLevel.ERROR;
       default:
-        return 'debug';
+        return LogLevel.INFO;
+    }
+  }
+
+  private async saveLogToDatabase(
+    execution: Execution,
+    event: EventBridgeEvent,
+    logEvent: { message: string; level: LogLevel; [key: string]: any },
+  ): Promise<void> {
+    try {
+      const logData = {
+        executionId: execution.executionId,
+        timestamp: new Date(event.time),
+        message: logEvent.message,
+        level: logEvent.level,
+      };
+
+      await this.logStorageService.saveLogs([logData]);
+      this.logger.debug(
+        `Saved log to database for execution ${execution.executionId}`,
+      );
+    } catch (error: unknown) {
+      this.logger.error(
+        `Failed to save log to database for execution ${execution.executionId}:`,
+        error,
+      );
     }
   }
 
@@ -276,43 +436,51 @@ export class EventBridgeService {
     return `[${projectName}] Build ${status}`;
   }
 
-  private async broadcastLogEvent(
-    executionId: string,
-    logEvent: any,
-  ): Promise<void> {
+  private broadcastLogEvent(executionId: string): void {
     try {
-      this.logsGateway.broadcastLogs(executionId, [logEvent]);
-      this.logger.debug(`Broadcast log event for execution ${executionId}`);
-    } catch (error) {
+      // Events are now broadcasted through LogBufferService event emitter
+      this.logger.debug(`Log event ready for execution ${executionId}`);
+    } catch (error: unknown) {
       this.logger.error(
-        `Failed to broadcast log event for execution ${executionId}:`,
+        `Failed to process log event for execution ${executionId}:`,
         error,
       );
     }
   }
 
-  private async finalizeExecution(
-    execution: Execution,
-    status: string,
-  ): Promise<void> {
+  private broadcastStatusEvent(
+    executionId: string,
+    statusEvent: { status: string; [key: string]: any },
+  ): void {
+    try {
+      // Status broadcasts now handled through status change methods
+      this.logsGateway.broadcastStatusChange(executionId, statusEvent.status);
+      this.logger.debug(`Broadcast status event for execution ${executionId}`);
+    } catch (error: unknown) {
+      this.logger.error(
+        `Failed to broadcast status event for execution ${executionId}:`,
+        error,
+      );
+    }
+  }
+
+  private finalizeExecution(execution: Execution, status: string): void {
     try {
       this.logger.log(
         `Finalizing execution ${execution.executionId} with status ${status}`,
       );
 
-      if (this.useEventBridge) {
-        // Stop polling will be handled by CloudWatch service if enabled
-      }
+      // Stop CloudWatch polling
+      this.cloudwatchService.stopPolling(execution.executionId);
+      this.logger.log(
+        `Stopped CloudWatch polling for execution ${execution.executionId}`,
+      );
 
-      const finalEvent = {
-        executionId: execution.executionId,
-        type: 'execution-complete',
+      this.logsGateway.broadcastExecutionComplete(
+        execution.executionId,
         status,
-        completedAt: new Date().toISOString(),
-      };
-
-      this.logsGateway.broadcastLogs(execution.executionId, [finalEvent]);
-    } catch (error) {
+      );
+    } catch (error: unknown) {
       this.logger.error(
         `Failed to finalize execution ${execution.executionId}:`,
         error,

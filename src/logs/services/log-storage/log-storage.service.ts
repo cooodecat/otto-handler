@@ -5,13 +5,19 @@ import {
   ExecutionLog,
   LogLevel,
 } from '../../../database/entities/execution-log.entity';
-import { Execution } from '../../../database/entities/execution.entity';
+import {
+  Execution,
+  ExecutionStatus,
+} from '../../../database/entities/execution.entity';
 
 interface LogEvent {
   executionId: string;
   timestamp: Date;
   message: string;
   level: LogLevel;
+  phase?: string;
+  step?: string;
+  stepOrder?: number;
 }
 
 @Injectable()
@@ -42,6 +48,9 @@ export class LogStorageService {
         executionLog.timestamp = log.timestamp;
         executionLog.message = log.message;
         executionLog.level = log.level;
+        executionLog.phase = log.phase;
+        executionLog.step = log.step;
+        executionLog.stepOrder = log.stepOrder;
         return executionLog;
       });
 
@@ -51,7 +60,10 @@ export class LogStorageService {
       this.logger.debug(`Saved ${logs.length} logs to database`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`Failed to save logs: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to save logs: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
       throw error;
     } finally {
       await queryRunner.release();
@@ -137,11 +149,13 @@ export class LogStorageService {
     status: 'success' | 'failed',
     completedAt?: Date,
   ): Promise<void> {
-    const executionStatus = status === 'success' ? 'success' : 'failed';
     await this.executionRepository.update(
       { executionId },
       {
-        status: executionStatus as any,
+        status:
+          status === 'success'
+            ? ExecutionStatus.SUCCESS
+            : ExecutionStatus.FAILED,
         completedAt: completedAt || new Date(),
       },
     );

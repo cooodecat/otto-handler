@@ -12,7 +12,6 @@ import {
   HttpCode,
   HttpException,
   BadRequestException,
-  NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import {
@@ -80,7 +79,7 @@ export class LogsController {
         throw error;
       }
       throw new InternalServerErrorException(
-        `Failed to register execution: ${error.message}`,
+        `Failed to register execution: ${(error as Error).message}`,
       );
     }
   }
@@ -158,7 +157,7 @@ export class LogsController {
         throw error;
       }
       throw new InternalServerErrorException(
-        `Failed to fetch execution: ${error.message}`,
+        `Failed to fetch execution: ${(error as Error).message}`,
       );
     }
   }
@@ -271,25 +270,51 @@ export class LogsController {
     };
   }
 
-  private mapToExecutionResponse(execution: any): ExecutionResponseDto {
+  private mapToExecutionResponse(execution: unknown): ExecutionResponseDto {
+    const exec = execution as {
+      executionId: string;
+      pipelineId: string;
+      projectId: string;
+      userId: string;
+      executionType: ExecutionType;
+      status: ExecutionStatus;
+      awsBuildId?: string;
+      awsDeploymentId?: string;
+      logStreamName?: string;
+      metadata?: { pipelineName?: string; [key: string]: any };
+      pipeline?: { pipelineName?: string };
+      startedAt: Date;
+      completedAt?: Date;
+      updatedAt: Date;
+      isArchived: boolean;
+      archiveUrl?: string;
+      logs?: any[];
+    };
+
     return {
-      executionId: execution.executionId,
-      pipelineId: execution.pipelineId,
-      projectId: execution.projectId,
-      userId: execution.userId,
-      executionType: execution.executionType,
-      status: execution.status,
-      awsBuildId: execution.awsBuildId,
-      awsDeploymentId: execution.awsDeploymentId,
-      logStreamName: execution.logStreamName,
-      metadata: execution.metadata,
-      startedAt: execution.startedAt,
-      completedAt: execution.completedAt,
-      updatedAt: execution.updatedAt,
-      isArchived: execution.isArchived,
-      archiveUrl: execution.archiveUrl,
-      logs: execution.logs,
-      logCount: execution.logs?.length || 0,
+      executionId: exec.executionId,
+      pipelineId: exec.pipelineId,
+      projectId: exec.projectId,
+      userId: exec.userId,
+      executionType: exec.executionType,
+      status: exec.status,
+      awsBuildId: exec.awsBuildId,
+      awsDeploymentId: exec.awsDeploymentId,
+      logStreamName: exec.logStreamName,
+      metadata: {
+        ...exec.metadata,
+        pipelineName:
+          exec.pipeline?.pipelineName ||
+          exec.metadata?.pipelineName ||
+          'Unknown Pipeline',
+      },
+      startedAt: exec.startedAt,
+      completedAt: exec.completedAt,
+      updatedAt: exec.updatedAt,
+      isArchived: exec.isArchived,
+      archiveUrl: exec.archiveUrl,
+      logs: exec.logs,
+      logCount: exec.logs?.length || 0,
     };
   }
 }

@@ -44,7 +44,7 @@ export class GithubAppService {
       throw new Error('GitHub App configuration missing');
     }
 
-    this.initializeApp(appId, privateKey).catch((error) => {
+    this.initializeApp(appId, privateKey).catch((error: Error) => {
       this.logger.error('Failed to initialize GitHub App:', error);
       throw new Error('Failed to initialize GitHub App');
     });
@@ -219,7 +219,7 @@ export class GithubAppService {
         } catch (error) {
           this.logger.warn(
             `Failed to get repositories for installation ${installationId}:`,
-            error,
+            error as Error,
           );
         }
       }
@@ -271,7 +271,7 @@ export class GithubAppService {
         } catch (error) {
           this.logger.warn(
             `Failed to process installation ${githubApp.installationId}:`,
-            error,
+            error as Error,
           );
         }
       }

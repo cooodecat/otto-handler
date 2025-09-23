@@ -31,7 +31,7 @@ async function runSeeders() {
     await logSeeder.run();
 
     console.log('✅ All seeders completed successfully');
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error running seeders:', error);
     process.exit(1);
   } finally {
@@ -42,7 +42,7 @@ async function runSeeders() {
 
 // Run if called directly
 if (require.main === module) {
-  runSeeders();
+  void runSeeders();
 }
 
 export { runSeeders };

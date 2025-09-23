@@ -7,6 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '../auth/jwt.service';
 import { LogsService } from './logs.service';
 import { LogBufferService } from './services/log-buffer/log-buffer.service';
@@ -69,7 +70,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(
         `Authentication failed for client ${client.id}:`,
-        error,
+        error as Error,
       );
       // 개발 환경에서는 에러가 있어도 연결 허용
       if (process.env.NODE_ENV === 'development') {
@@ -136,15 +137,21 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         executionId,
         1000,
       );
+      this.logger.log(
+        `Fetched ${historicalLogs.length} historical logs for execution ${executionId}`,
+      );
       if (historicalLogs.length > 0) {
         client.emit('logs:historical', historicalLogs);
+        this.logger.log(
+          `Emitted ${historicalLogs.length} historical logs to client ${client.id}`,
+        );
       }
 
       client.emit('subscribed', { executionId });
     } catch (error) {
       this.logger.error(
         `Error in handleSubscribe for client ${client.id}:`,
-        error,
+        error as Error,
       );
       client.emit('error', {
         message: 'Failed to subscribe to execution logs',
@@ -164,8 +171,10 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('unsubscribed', { executionId });
   }
 
-  // CloudWatch에서 새 로그 수신 시 호출
-  broadcastLogs(executionId: string, logs: any[]): void {
+  // Event listener for new logs from LogBufferService
+  @OnEvent('logs.new')
+  handleNewLogs(payload: { executionId: string; logs: unknown[] }): void {
+    const { executionId, logs } = payload;
     // Broadcast each log individually for real-time effect
     logs.forEach((log) => {
       this.server.to(`execution:${executionId}`).emit('logs:new', log);
@@ -207,7 +216,7 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       return decoded;
     } catch (error) {
-      this.logger.error('Token validation error:', error);
+      this.logger.error('Token validation error:', error as Error);
       return null;
     }
   }

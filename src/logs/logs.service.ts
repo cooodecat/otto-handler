@@ -90,7 +90,7 @@ export class LogsService {
       } catch (error) {
         this.logger.error(
           `Failed to start polling for execution ${savedExecution.executionId}:`,
-          error,
+          error as Error,
         );
       }
     }
@@ -167,7 +167,7 @@ export class LogsService {
   async updateExecutionStatus(
     executionId: string,
     status: ExecutionStatus,
-    metadata?: any,
+    metadata?: unknown,
   ): Promise<void> {
     const execution = await this.executionRepository.findOne({
       where: { executionId },
@@ -179,7 +179,10 @@ export class LogsService {
 
     execution.status = status;
     if (metadata) {
-      execution.metadata = { ...(execution.metadata as object), ...metadata };
+      execution.metadata = {
+        ...(execution.metadata as object),
+        ...(metadata as object),
+      };
     }
 
     if (
@@ -225,13 +228,10 @@ export class LogsService {
   }
 
   async checkAccess(userId: string, executionId: string): Promise<boolean> {
-    // Development mode: allow access to test executions
-    if (
-      process.env.NODE_ENV === 'development' &&
-      executionId.startsWith('test-')
-    ) {
+    // Development mode: allow access to all executions for testing
+    if (process.env.NODE_ENV === 'development') {
       this.logger.log(
-        `Development mode: Allowing access to test execution ${executionId}`,
+        `Development mode: Allowing access to execution ${executionId} for user ${userId}`,
       );
       return true;
     }
@@ -242,13 +242,6 @@ export class LogsService {
     });
 
     if (!execution) {
-      // In development mode, don't throw for test executions
-      if (process.env.NODE_ENV === 'development') {
-        this.logger.warn(
-          `Execution ${executionId} not found, but allowing in dev mode`,
-        );
-        return true;
-      }
       throw new NotFoundException(`Execution ${executionId} not found`);
     }
 

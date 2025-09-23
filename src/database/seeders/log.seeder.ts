@@ -23,7 +23,20 @@ export class LogSeeder {
       return;
     }
 
-    const logTemplates = {
+    const logTemplates: {
+      build: {
+        pending: Array<{ level: LogLevel; message: string }>;
+        running: Array<{ level: LogLevel; message: string }>;
+        success: Array<{ level: LogLevel; message: string }>;
+        failed: Array<{ level: LogLevel; message: string }>;
+      };
+      deploy: {
+        pending: Array<{ level: LogLevel; message: string }>;
+        running: Array<{ level: LogLevel; message: string }>;
+        success: Array<{ level: LogLevel; message: string }>;
+        failed: Array<{ level: LogLevel; message: string }>;
+      };
+    } = {
       build: {
         pending: [
           { level: LogLevel.INFO, message: 'Build job queued' },
@@ -118,8 +131,12 @@ export class LogSeeder {
       const status = execution.status.toLowerCase();
 
       // Get appropriate log templates
+      const templateType = type as keyof typeof logTemplates;
+      const templateStatus =
+        status as keyof (typeof logTemplates)[typeof templateType];
       const templates =
-        logTemplates[type]?.[status] || logTemplates.build.running;
+        logTemplates[templateType]?.[templateStatus] ||
+        logTemplates.build.running;
 
       // Create logs with incremental timestamps
       const baseTime = new Date(execution.startedAt);
@@ -147,7 +164,7 @@ export class LogSeeder {
 
       // Add some additional logs for running executions
       if (status === 'running') {
-        const additionalLogs = [
+        const additionalLogs: Array<{ level: LogLevel; message: string }> = [
           { level: LogLevel.INFO, message: 'Processing step 1 of 10...' },
           { level: LogLevel.INFO, message: 'Processing step 2 of 10...' },
           { level: LogLevel.INFO, message: 'Processing step 3 of 10...' },

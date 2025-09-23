@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import {
   CodeBuildClient,
   CreateProjectCommand,
@@ -12,6 +14,11 @@ import { BuildSpecGeneratorService } from './buildspec-generator.service';
 import { ECRService } from './ecr.service';
 import { EventBridgeService } from './eventbridge.service';
 import { CloudWatchLogsService } from './cloudwatch-logs.service';
+import { Execution } from '../database/entities/execution.entity';
+import {
+  ExecutionType,
+  ExecutionStatus,
+} from '../database/entities/execution.entity';
 
 // Flow 노드 타입 (frontend와 동일)
 interface AnyCICDNodeData {
@@ -30,6 +37,8 @@ export class CodeBuildService {
   private readonly stsClient: STSClient;
 
   constructor(
+    @InjectRepository(Execution)
+    private readonly executionRepository: Repository<Execution>,
     private readonly buildSpecGenerator: BuildSpecGeneratorService,
     private readonly ecrService: ECRService,
     private readonly eventBridgeService: EventBridgeService,
@@ -115,7 +124,7 @@ export class CodeBuildService {
       this.logger.log(`CloudWatch log group created: ${cloudwatchLogGroup}`);
 
       // 7. CodeBuild 프로젝트 생성
-      const createProjectInput: any = {
+      const createProjectInput = {
         name: codebuildProjectName,
         description: `Otto project: ${config.projectName}`,
         source: {
@@ -134,7 +143,11 @@ export class CodeBuildService {
         environment: {
           type: 'LINUX_CONTAINER' as const,
           image: buildImage,
-          computeType: computeType as any,
+          computeType: computeType as
+            | 'BUILD_GENERAL1_SMALL'
+            | 'BUILD_GENERAL1_MEDIUM'
+            | 'BUILD_GENERAL1_LARGE'
+            | 'BUILD_GENERAL1_2XLARGE',
           privilegedMode: true, // Docker 빌드를 위해 필수
           environmentVariables: [
             {
@@ -200,11 +213,14 @@ export class CodeBuildService {
       };
 
       // 서비스 역할 추가
-      createProjectInput.serviceRole = serviceRoleArn;
+      const createProjectInputWithRole = {
+        ...createProjectInput,
+        serviceRole: serviceRoleArn,
+      };
       this.logger.log(`Using service role: ${serviceRoleArn}`);
 
       const result = await this.codeBuildClient.send(
-        new CreateProjectCommand(createProjectInput),
+        new CreateProjectCommand(createProjectInputWithRole),
       );
 
       this.logger.log(
@@ -212,10 +228,9 @@ export class CodeBuildService {
       );
 
       // 8. EventBridge Rule 생성 (실시간 로그 이벤트 수신용 - 필수)
-      const eventBridgeRuleName =
-        await this.eventBridgeService.createCodeBuildEventRule(
-          codebuildProjectName,
-        );
+      await this.eventBridgeService.createCodeBuildEventRule(
+        codebuildProjectName,
+      );
       this.logger.log(
         `EventBridge rule created for project: ${codebuildProjectName}`,
       );
@@ -228,8 +243,12 @@ export class CodeBuildService {
         ecrRepositoryUri: ecrResult.repositoryUri,
       };
     } catch (error) {
-      this.logger.error(`Failed to create CodeBuild project: ${error.message}`);
-      throw new Error(`CodeBuild 프로젝트 생성 실패: ${error.message}`);
+      this.logger.error(
+        `Failed to create CodeBuild project: ${(error as Error).message}`,
+      );
+      throw new Error(
+        `CodeBuild 프로젝트 생성 실패: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -249,7 +268,8 @@ export class CodeBuildService {
   }> {
     try {
       // flowNodes가 있으면 새로운 buildspec 생성
-      let sourceOverrides: any = undefined;
+      let sourceOverrides: { buildspecOverride?: string } | undefined =
+        undefined;
       if (config.flowNodes && config.flowNodes.length > 0) {
         const updatedBuildSpec = this.buildSpecGenerator.generateBuildSpec(
           config.flowNodes,
@@ -268,6 +288,15 @@ export class CodeBuildService {
         {
           name: 'EXECUTION_TIMESTAMP',
           value: new Date().toISOString(),
+        },
+        // EventBridge 이벤트에서 사용할 메타데이터
+        {
+          name: 'OTTO_USER_ID',
+          value: config.userId,
+        },
+        {
+          name: 'OTTO_PROJECT_ID',
+          value: config.projectId,
         },
       ];
 
@@ -332,14 +361,54 @@ export class CodeBuildService {
       this.logger.log(`Build number extracted: ${buildNumber}`);
       this.logger.log(`Image tag generated: ${imageTag}`);
 
+      // EventBridge 모드에서 execution 레코드 생성
+      // (EventBridge IN_PROGRESS 이벤트가 오기 전에 생성)
+      if (process.env.USE_EVENTBRIDGE === 'true') {
+        try {
+          const executionId = buildId.split(':')[1]; // UUID 부분 사용
+          const logStreamName = executionId; // CloudWatch 로그 스트림명
+
+          const execution = this.executionRepository.create({
+            executionId: executionId,
+            executionType: ExecutionType.BUILD,
+            status: ExecutionStatus.RUNNING,
+            awsBuildId: buildId,
+            projectId: config.projectId,
+            pipelineId: config.pipelineId || '',
+            userId: config.userId,
+            logStreamName: logStreamName, // CloudWatch 로그 스트림명 설정
+            startedAt: new Date(),
+            metadata: {
+              source: 'otto-ui',
+              buildNumber,
+              imageTag,
+              projectName: config.projectName,
+            },
+          });
+
+          await this.executionRepository.save(execution);
+          this.logger.log(
+            `Created execution record ${executionId} for build ${buildId} with logStream ${logStreamName}`,
+          );
+
+          // CloudWatch 폴링은 EventBridge IN_PROGRESS 이벤트에서 시작됨
+          // 여기서는 execution 레코드만 생성
+        } catch (error) {
+          this.logger.error(
+            `Failed to create execution record: ${(error as Error).message}`,
+          );
+          // execution 생성 실패해도 빌드는 계속 진행
+        }
+      }
+
       return {
         buildId,
         buildNumber,
         imageTag,
       };
     } catch (error) {
-      this.logger.error(`Failed to start build: ${error.message}`);
-      throw new Error(`빌드 실행 실패: ${error.message}`);
+      this.logger.error(`Failed to start build: ${(error as Error).message}`);
+      throw new Error(`빌드 실행 실패: ${(error as Error).message}`);
     }
   }
 
@@ -379,8 +448,10 @@ export class CodeBuildService {
         },
       };
     } catch (error) {
-      this.logger.error(`Failed to get build status: ${error.message}`);
-      throw new Error(`빌드 상태 조회 실패: ${error.message}`);
+      this.logger.error(
+        `Failed to get build status: ${(error as Error).message}`,
+      );
+      throw new Error(`빌드 상태 조회 실패: ${(error as Error).message}`);
     }
   }
 
@@ -394,7 +465,9 @@ export class CodeBuildService {
         await this.eventBridgeService.deleteCodeBuildEventRule(projectName);
         this.logger.log(`EventBridge rule deleted for project: ${projectName}`);
       } catch (error) {
-        this.logger.warn(`Failed to delete EventBridge rule: ${error.message}`);
+        this.logger.warn(
+          `Failed to delete EventBridge rule: ${(error as Error).message}`,
+        );
       }
 
       // 2. CodeBuild 프로젝트 삭제
@@ -406,15 +479,19 @@ export class CodeBuildService {
 
       this.logger.log(`CodeBuild project deleted: ${projectName}`);
     } catch (error) {
-      if (error.name === 'ResourceNotFoundException') {
+      if ((error as Error).name === 'ResourceNotFoundException') {
         this.logger.warn(
           `CodeBuild project not found for deletion: ${projectName}`,
         );
         return;
       }
 
-      this.logger.error(`Failed to delete CodeBuild project: ${error.message}`);
-      throw new Error(`CodeBuild 프로젝트 삭제 실패: ${error.message}`);
+      this.logger.error(
+        `Failed to delete CodeBuild project: ${(error as Error).message}`,
+      );
+      throw new Error(
+        `CodeBuild 프로젝트 삭제 실패: ${(error as Error).message}`,
+      );
     }
   }
 
