@@ -7,6 +7,7 @@
 import type { IConnection } from "@nestia/fetcher";
 import { PlainFetcher } from "@nestia/fetcher/lib/PlainFetcher";
 
+export * as health from "./health/index";
 export * as auth from "./auth/index";
 export * as user from "./user/index";
 export * as projects from "./projects/index";
@@ -16,6 +17,7 @@ export * as pipelines from "./pipelines/index";
 export * as logs from "./logs/index";
 export * as test_logs from "./test_logs/index";
 export * as events from "./events/index";
+export * as debug from "./debug/index";
 
 /**
  * @controller AppController.getHello

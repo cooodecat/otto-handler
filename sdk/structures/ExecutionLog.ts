@@ -9,6 +9,9 @@ export type ExecutionLog = {
   timestamp: string & Format<"date-time">;
   message: string;
   level: "info" | "warning" | "error";
+  phase?: undefined | string;
+  step?: undefined | string;
+  stepOrder?: undefined | number;
   metadata?: any | undefined;
   createdAt: string & Format<"date-time">;
 };

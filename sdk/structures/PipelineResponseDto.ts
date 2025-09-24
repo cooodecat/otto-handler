@@ -7,6 +7,11 @@ export type PipelineResponseDto = {
   pipelineId: string;
 
   /**
+   * 배포 주소
+   */
+  deployUrl: null | string;
+
+  /**
    * 프로젝트 ID
    */
   projectId: string;
@@ -30,6 +35,17 @@ export type PipelineResponseDto = {
    * 이미지 태그 (빌드 번호 기반)
    */
   imageTag?: null | undefined | string;
+
+  /**
+   * 배포 옵션 (포트 및 커맨드)
+   */
+  deployOption?:
+    | null
+    | undefined
+    | {
+        port: number;
+        command: string;
+      };
 
   /**
    * 생성일
