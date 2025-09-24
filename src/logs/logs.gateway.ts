@@ -17,11 +17,7 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
   cors: {
     origin:
       process.env.NODE_ENV === 'production'
-        ? [
-            'https://otto.codecat.shop',
-            'https://codecat-otto.shop',
-            'https://www.codecat-otto.shop',
-          ]
+        ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
         : [
             process.env.FRONTEND_URL || 'http://localhost:5173',
             'http://localhost:5173',
@@ -31,6 +27,9 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
     credentials: true,
   },
   namespace: '/logs',
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000,
 })
 export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
