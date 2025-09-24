@@ -17,7 +17,11 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
   cors: {
     origin:
       process.env.NODE_ENV === 'production'
-        ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
+        ? [
+            'https://otto.codecat.shop',
+            'https://codecat-otto.shop',
+            'https://www.codecat-otto.shop',
+          ]
         : [
             process.env.FRONTEND_URL || 'http://localhost:5173',
             'http://localhost:5173',
