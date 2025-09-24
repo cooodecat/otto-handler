@@ -6,6 +6,7 @@ import { Pipeline } from '../database/entities/pipeline.entity';
 import { AwsEcsService } from '../aws/aws-ecs.service';
 import { AwsAlbService } from '../aws/aws-alb.service';
 import { AwsRoute53Service } from '../aws/aws-route53.service';
+import { HealthCheckService } from './health-check.service';
 import { ConfigService } from '@nestjs/config';
 import {
   EC2Client,
@@ -31,6 +32,7 @@ export class DeploymentService {
     private readonly ecsService: AwsEcsService,
     private readonly albService: AwsAlbService,
     private readonly route53Service: AwsRoute53Service,
+    private readonly healthCheckService: HealthCheckService,
     private configService: ConfigService,
   ) {
     this.ec2Client = new EC2Client({
@@ -157,7 +159,7 @@ export class DeploymentService {
     );
 
     this.logger.log(`🎉 [완료] 배포 성공!`);
-    this.logger.log(`   🌐 접속 URL: https://${deployUrl}`);
+    this.logger.log(`   🌐 접속 URL: http://${deployUrl}`);
     this.logger.log(`   🔗 ALB DNS: ${albResult.dnsName}`);
     this.logger.log(`   📦 ECS 서비스: ${ecsServiceResult.serviceArn}`);
 

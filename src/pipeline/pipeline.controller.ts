@@ -233,4 +233,40 @@ export class PipelineController {
       req.user.userId,
     );
   }
+
+  /**
+   * @tag pipeline
+   * @summary 배포 헬스체크 조회
+   */
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.NOT_FOUND,
+    description: '파이프라인을 찾을 수 없음',
+  })
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '인증 실패',
+  })
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.BAD_REQUEST,
+    description: '배포 URL이 설정되지 않음',
+  })
+  @HttpCode(200)
+  @TypedRoute.Get('/:pipelineId/deployment/health')
+  @AuthGuard()
+  async getDeploymentHealth(
+    @TypedParam('pipelineId') pipelineId: string,
+    @Req() req: IRequestType,
+  ): Promise<{
+    isHealthy: boolean;
+    responseStatus: number;
+    responseTime: number;
+    errorMessage?: string;
+    lastChecked: Date;
+    deployUrl: string;
+  }> {
+    return await this.pipelineService.getDeploymentHealth(
+      pipelineId,
+      req.user.userId,
+    );
+  }
 }

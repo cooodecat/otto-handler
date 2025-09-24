@@ -15,6 +15,7 @@ import type { UpdatePipelineRequestDto } from "../../structures/UpdatePipelineRe
 export * as projects from "./projects/index";
 export * as execute from "./execute/index";
 export * as builds from "./builds/index";
+export * as deployment from "./deployment/index";
 
 /**
  * @tag pipeline
