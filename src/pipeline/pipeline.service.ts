@@ -447,6 +447,7 @@ export class PipelineService {
       imageTag: pipeline.imageTag,
       createdAt: pipeline.createdAt,
       updatedAt: pipeline.updatedAt,
+      deployUrl: pipeline.deployUrl,
     };
   }
 }
