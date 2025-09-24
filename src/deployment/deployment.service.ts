@@ -124,11 +124,12 @@ export class DeploymentService {
     // 5-1. CloudWatch 로그 그룹 생성 (ECS 태스크용)
     await this.ensureLogGroupExists(pipelineId);
 
-    // 5-2. code-cat 클러스터에 ECS 서비스 생성/업데이트
+    // 5-2. code-cat 클러스터에 ECS 서비스 생성/업데이트 (타겟 그룹 연결 포함)
     const ecsServiceResult = await this.setupEcsService(
       pipeline,
       userId,
       deployUrl,
+      targetGroupResult.targetGroupArn, // 타겟 그룹 ARN 전달
     );
 
     this.logger.log(`📋 [STEP 6/8] ALB 라우팅 규칙 추가 중...`);
@@ -149,14 +150,8 @@ export class DeploymentService {
       albResult.canonicalHostedZoneId,
     );
 
-    this.logger.log(`📋 [STEP 8/8] ECS 태스크를 타겟 그룹에 등록 중...`);
-
-    // 8. 마지막에 ECS 태스크를 타겟 그룹에 자동 등록
-    await this.updateTargetGroupTargets(
-      ecsServiceResult.serviceArn,
-      targetGroupResult.targetGroupArn,
-      pipeline.deployOption?.port || 3000,
-    );
+    // 8. ECS 서비스 생성 시 로드밸런서를 연결했으므로 자동으로 타겟 등록됨
+    this.logger.log(`📋 [STEP 8/8] ECS 서비스가 로드밸런서에 연결되어 자동으로 타겟 등록됩니다.`);
 
     this.logger.log(`🎉 [완료] 배포 성공!`);
     this.logger.log(`   🌐 접속 URL: http://${deployUrl}`);
@@ -193,6 +188,7 @@ export class DeploymentService {
     pipeline: Pipeline,
     userId: string,
     deployUrl: string,
+    targetGroupArn?: string, // 타겟 그룹 ARN 추가
   ): Promise<{ serviceArn: string }> {
     const clusterName = 'code-cat';
     const serviceName = `service-${pipeline.pipelineId}`;
@@ -318,6 +314,16 @@ export class DeploymentService {
               assignPublicIp: 'ENABLED',
             },
           },
+          // ALB 연결 설정 추가
+          ...(targetGroupArn && {
+            loadBalancers: [
+              {
+                targetGroupArn,
+                containerName: 'app',
+                containerPort: containerPort,
+              },
+            ],
+          }),
         });
         serviceArn = createResult.service?.serviceArn || '';
         this.logger.log(`✅ [STEP 5/7] 완료: 새 ECS 서비스 생성`);
