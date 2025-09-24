@@ -42,6 +42,13 @@ lerna-debug.log*
 .env.production.local
 .env.production
 .env.local
+.env.production
+
+# Lambda files
+lambda/
+
+# Otto SDK
+otto-sdk/
 
 # temp directory
 .temp

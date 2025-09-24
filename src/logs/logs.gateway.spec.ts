@@ -6,6 +6,8 @@ import { LogsService } from './logs.service';
 import { LogBufferService } from './services/log-buffer/log-buffer.service';
 import { JwtService } from '../auth/jwt.service';
 import { Socket, Server } from 'socket.io';
+import { Execution } from '../database/entities/execution.entity';
+import { LogLevel } from '../database/entities/execution-log.entity';
 
 describe('LogsGateway', () => {
   let gateway: LogsGateway;
@@ -171,9 +173,9 @@ describe('LogsGateway', () => {
           executionId: 'test-execution-id',
           timestamp: new Date(),
           message: 'historical log',
-          level: 'info' as const,
+          level: LogLevel.INFO,
           createdAt: new Date(),
-          execution: {} as unknown,
+          execution: {} as Execution,
         },
       ];
 

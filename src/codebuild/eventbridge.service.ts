@@ -6,21 +6,34 @@ import {
   RemoveTargetsCommand,
   DeleteRuleCommand,
 } from '@aws-sdk/client-eventbridge';
+import {
+  LambdaClient,
+  AddPermissionCommand,
+  RemovePermissionCommand,
+} from '@aws-sdk/client-lambda';
 
 @Injectable()
 export class EventBridgeService {
   private readonly logger = new Logger(EventBridgeService.name);
   private readonly client: EventBridgeClient;
+  private readonly lambdaClient: LambdaClient;
+  private readonly region: string;
 
   constructor() {
-    const region = process.env.AWS_REGION || 'ap-northeast-2';
+    this.region = process.env.AWS_REGION || 'ap-northeast-2';
+    const credentials = {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    };
 
     this.client = new EventBridgeClient({
-      region,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
+      region: this.region,
+      credentials,
+    });
+
+    this.lambdaClient = new LambdaClient({
+      region: this.region,
+      credentials,
     });
   }
 
@@ -31,11 +44,12 @@ export class EventBridgeService {
     codebuildProjectName: string,
   ): Promise<string> {
     // EventBridge Rule 이름은 64자 제한
-    // codebuildProjectName이 otto-development-{uuid}-build 형태
+    // codebuildProjectName이 otto-development-{uuid}-build 또는 otto-production-{uuid}-build 형태
     // UUID 부분만 추출하여 사용
     const parts = codebuildProjectName.split('-');
     const projectId = parts[parts.length - 2]; // UUID 부분 추출
-    const ruleName = `otto-dev-${projectId}`;
+    const environment = process.env.NODE_ENV === 'production' ? 'prod' : 'dev';
+    const ruleName = `otto-${environment}-${projectId}`;
 
     try {
       // 1. EventBridge Rule 생성
@@ -86,6 +100,38 @@ export class EventBridgeService {
       );
 
       this.logger.log(`Lambda target added to rule: ${ruleName}`);
+
+      // 3. Lambda에 EventBridge 호출 권한 추가
+      const statementId = `${ruleName}-permission`;
+
+      try {
+        await this.lambdaClient.send(
+          new AddPermissionCommand({
+            FunctionName: lambdaArn.split(':').pop(), // Lambda 함수 이름 추출
+            StatementId: statementId,
+            Action: 'lambda:InvokeFunction',
+            Principal: 'events.amazonaws.com',
+            SourceArn: `arn:aws:events:${this.region}:${lambdaArn.split(':')[4]}:rule/${ruleName}`,
+          }),
+        );
+        this.logger.log(`Lambda permission added for rule: ${ruleName}`);
+      } catch (permissionError: unknown) {
+        const errorObj = permissionError as { name?: string; message?: string };
+        // 이미 존재하는 권한은 무시
+        if (errorObj.name !== 'ResourceConflictException') {
+          this.logger.error(
+            `Failed to add Lambda permission: ${errorObj.message || 'Unknown error'}`,
+          );
+          // Permission 추가 실패 시 Rule과 Target 롤백
+          await this.deleteRuleByName(ruleName);
+          throw new Error(
+            `Lambda 권한 추가 실패: ${errorObj.message || 'Unknown error'}`,
+          );
+        }
+        this.logger.log(
+          `Lambda permission already exists for rule: ${ruleName}`,
+        );
+      }
       return ruleName;
     } catch (error: unknown) {
       const errorObj = error as { message?: string };
@@ -105,7 +151,8 @@ export class EventBridgeService {
     // 생성 시와 동일한 로직으로 Rule 이름 생성
     const parts = codebuildProjectName.split('-');
     const projectId = parts[parts.length - 2];
-    const ruleName = `otto-dev-${projectId}`;
+    const environment = process.env.NODE_ENV === 'production' ? 'prod' : 'dev';
+    const ruleName = `otto-${environment}-${projectId}`;
 
     try {
       // 1. 먼저 타겟 제거
@@ -127,7 +174,33 @@ export class EventBridgeService {
         }
       }
 
-      // 2. Rule 삭제
+      // 2. Lambda 권한 제거
+      const lambdaArn = process.env.OTTO_LAMBDA_ARN;
+      if (lambdaArn) {
+        const statementId = `${ruleName}-permission`;
+        try {
+          await this.lambdaClient.send(
+            new RemovePermissionCommand({
+              FunctionName: lambdaArn.split(':').pop(), // Lambda 함수 이름 추출
+              StatementId: statementId,
+            }),
+          );
+          this.logger.log(`Lambda permission removed for rule: ${ruleName}`);
+        } catch (permissionError: unknown) {
+          const errorObj = permissionError as {
+            name?: string;
+            message?: string;
+          };
+          // 권한이 없는 경우는 무시
+          if (errorObj.name !== 'ResourceNotFoundException') {
+            this.logger.warn(
+              `Failed to remove Lambda permission: ${errorObj.message || 'Unknown error'}`,
+            );
+          }
+        }
+      }
+
+      // 3. Rule 삭제
       await this.client.send(
         new DeleteRuleCommand({
           Name: ruleName,
@@ -170,7 +243,33 @@ export class EventBridgeService {
         }
       }
 
-      // 2. Rule 삭제
+      // 2. Lambda 권한 제거
+      const lambdaArn = process.env.OTTO_LAMBDA_ARN;
+      if (lambdaArn) {
+        const statementId = `${ruleName}-permission`;
+        try {
+          await this.lambdaClient.send(
+            new RemovePermissionCommand({
+              FunctionName: lambdaArn.split(':').pop(), // Lambda 함수 이름 추출
+              StatementId: statementId,
+            }),
+          );
+          this.logger.log(`Lambda permission removed for rule: ${ruleName}`);
+        } catch (permissionError: unknown) {
+          const errorObj = permissionError as {
+            name?: string;
+            message?: string;
+          };
+          // 권한이 없는 경우는 무시
+          if (errorObj.name !== 'ResourceNotFoundException') {
+            this.logger.warn(
+              `Failed to remove Lambda permission: ${errorObj.message || 'Unknown error'}`,
+            );
+          }
+        }
+      }
+
+      // 3. Rule 삭제
       await this.client.send(
         new DeleteRuleCommand({
           Name: ruleName,
