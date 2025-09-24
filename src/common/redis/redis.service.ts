@@ -11,10 +11,19 @@ export class RedisService implements OnModuleDestroy {
   constructor(private configService: ConfigService) {
     const host = this.configService.get<string>('REDIS_HOST', 'localhost');
     const port = this.configService.get<number>('REDIS_PORT', 6379);
+    const password = this.configService.get<string>('REDIS_PASSWORD');
+    const username = this.configService.get<string>('REDIS_USER', 'default');
+
+    // Log configuration (without password for security)
+    this.logger.log(
+      `Initializing Redis connection to ${host}:${port} with username: ${username}`,
+    );
 
     this.client = new Redis({
       host,
       port,
+      password: password || undefined,
+      username: password ? username : undefined, // Only use username if password is set
       retryStrategy: (times) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
