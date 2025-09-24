@@ -31,7 +31,10 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
             }
             // Fallback to previously hardcoded domains if nothing provided
             if (list.length === 0) {
-              list.push('https://codecat-otto.shop', 'https://www.codecat-otto.shop');
+              list.push(
+                'https://codecat-otto.shop',
+                'https://www.codecat-otto.shop',
+              );
             }
             // De-duplicate
             return Array.from(new Set(list));

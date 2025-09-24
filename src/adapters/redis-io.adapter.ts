@@ -1,5 +1,5 @@
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import { ServerOptions } from 'socket.io';
+import { ServerOptions, Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import { INestApplication } from '@nestjs/common';
@@ -12,20 +12,24 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   async connectToRedis(): Promise<void> {
-    const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST 
-      ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`
-      : 'redis://localhost:6379';
+    const redisUrl =
+      process.env.REDIS_URL || process.env.REDIS_HOST
+        ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`
+        : 'redis://localhost:6379';
 
-    console.log('🔌 Connecting Socket.io to Redis:', redisUrl.replace(/:[^:]*@/, ':****@'));
+    console.log(
+      '🔌 Connecting Socket.io to Redis:',
+      redisUrl.replace(/:[^:]*@/, ':****@'),
+    );
 
-    const pubClient = createClient({ 
+    const pubClient = createClient({
       url: redisUrl,
       socket: {
         connectTimeout: 10000,
-        reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
-      }
+        reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
+      },
     });
-    
+
     const subClient = pubClient.duplicate();
 
     await Promise.all([pubClient.connect(), subClient.connect()]);
@@ -42,13 +46,18 @@ export class RedisIoAdapter extends IoAdapter {
     console.log('✅ Socket.io Redis adapter connected successfully');
   }
 
-  createIOServer(port: number, options?: ServerOptions): any {
+  createIOServer(port: number, options?: ServerOptions): Server {
     const server = super.createIOServer(port, {
       ...options,
       cors: {
-        origin: process.env.NODE_ENV === 'production'
-          ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
-          : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+        origin:
+          process.env.NODE_ENV === 'production'
+            ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
+            : [
+                'http://localhost:5173',
+                'http://localhost:5174',
+                'http://localhost:5175',
+              ],
         credentials: true,
       },
       transports: ['websocket', 'polling'],
@@ -57,13 +66,15 @@ export class RedisIoAdapter extends IoAdapter {
       // Railway/Vercel specific
       allowEIO3: true,
       maxHttpBufferSize: 1e8, // 100 MB
-    });
+    }) as Server;
 
     if (this.adapterConstructor) {
       server.adapter(this.adapterConstructor);
       console.log('🔄 Socket.io using Redis adapter for session management');
     } else {
-      console.warn('⚠️ Socket.io running without Redis adapter - sessions will not persist');
+      console.warn(
+        '⚠️ Socket.io running without Redis adapter - sessions will not persist',
+      );
     }
 
     return server;
