@@ -6,6 +6,7 @@ import { Project } from '../database/entities/project.entity';
 import { CodeBuildService } from '../codebuild/codebuild.service';
 import { ECRService } from '../codebuild/ecr.service';
 import { DeploymentService } from '../deployment/deployment.service';
+import { HealthCheckService } from '../deployment/health-check.service';
 import type {
   CreatePipelineRequestDto,
   UpdatePipelineRequestDto,
@@ -25,6 +26,7 @@ export class PipelineService {
     private readonly codeBuildService: CodeBuildService,
     private readonly ecrService: ECRService,
     private readonly deploymentService: DeploymentService,
+    private readonly healthCheckService: HealthCheckService,
   ) {}
 
   /**
@@ -435,6 +437,51 @@ export class PipelineService {
   }
 
   /**
+   * 배포 헬스체크 수행
+   */
+  async getDeploymentHealth(
+    pipelineId: string,
+    userId: string,
+  ): Promise<{
+    isHealthy: boolean;
+    responseStatus: number;
+    responseTime: number;
+    errorMessage?: string;
+    lastChecked: Date;
+    deployUrl: string;
+  }> {
+    // 파이프라인 권한 확인
+    const pipeline = await this.pipelineRepository
+      .createQueryBuilder('pipeline')
+      .leftJoinAndSelect('pipeline.project', 'project')
+      .where('pipeline.pipelineId = :pipelineId', { pipelineId })
+      .andWhere('project.userId = :userId', { userId })
+      .getOne();
+
+    if (!pipeline) {
+      throw new NotFoundException('Pipeline not found or access denied');
+    }
+
+    if (!pipeline.deployUrl) {
+      throw new Error('배포 URL이 설정되지 않았습니다');
+    }
+
+    this.logger.log(
+      `배포 헬스체크 시작: pipelineId=${pipelineId}, deployUrl=${pipeline.deployUrl}`,
+    );
+
+    // 헬스체크 수행
+    const healthResult = await this.healthCheckService.checkDeploymentHealth(
+      pipeline.deployUrl,
+    );
+
+    return {
+      ...healthResult,
+      deployUrl: pipeline.deployUrl,
+    };
+  }
+
+  /**
    * Entity를 ResponseDto로 변환
    */
   private mapToResponseDto(pipeline: Pipeline): PipelineResponseDto {
@@ -447,6 +494,7 @@ export class PipelineService {
       imageTag: pipeline.imageTag,
       createdAt: pipeline.createdAt,
       updatedAt: pipeline.updatedAt,
+      deployUrl: pipeline.deployUrl,
     };
   }
 }

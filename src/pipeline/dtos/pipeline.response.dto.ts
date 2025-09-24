@@ -5,6 +5,11 @@ export interface PipelineResponseDto {
   pipelineId: string;
 
   /**
+   * 배포 주소
+   */
+  deployUrl: string | null;
+
+  /**
    * 프로젝트 ID
    */
   projectId: string;

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { SwaggerModule, OpenAPIObject } from '@nestjs/swagger';
 import { NestiaSwaggerComposer } from '@nestia/sdk';
+import { RedisIoAdapter } from './adapters/redis-io.adapter';
 
 async function bootstrap() {
   const adapter = new FastifyAdapter({
@@ -20,6 +21,22 @@ async function bootstrap() {
   await app.register(fastifyCookie, {
     secret: process.env.COOKIE_SECRET ?? 'dev-cookie-secret',
   });
+
+  // Setup Redis adapter for Socket.io if Redis is available
+  if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+    const redisIoAdapter = new RedisIoAdapter(app);
+    try {
+      await redisIoAdapter.connectToRedis();
+      app.useWebSocketAdapter(redisIoAdapter);
+      console.log('📡 WebSocket adapter: Redis (distributed)');
+    } catch (error) {
+      console.error('❌ Failed to connect Redis adapter:', error);
+      console.log('📡 WebSocket adapter: In-memory (fallback)');
+    }
+  } else {
+    console.log('📡 WebSocket adapter: In-memory (no Redis configured)');
+  }
+
   app.setGlobalPrefix('api/v1', {
     exclude: [
       'health',
