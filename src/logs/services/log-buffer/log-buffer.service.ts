@@ -68,7 +68,6 @@ export class LogBufferService {
     this.logger.debug(
       `Added ${logs.length} logs to buffer for execution ${executionId}. Buffer size: ${buffer.getSize()}`,
     );
-
     // Emit event for WebSocket broadcasting
     this.eventEmitter.emit('logs.new', { executionId, logs });
   }

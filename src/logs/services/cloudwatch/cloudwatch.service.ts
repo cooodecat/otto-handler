@@ -192,6 +192,10 @@ export class CloudwatchService {
     this.pollers.clear();
   }
 
+  isPolling(executionId: string): boolean {
+    return this.pollers.has(executionId);
+  }
+
   private detectLogLevel(message: string): LogLevel {
     const lowerMessage = message.toLowerCase();
     if (lowerMessage.includes('error') || lowerMessage.includes('fail')) {
@@ -208,11 +212,21 @@ export class CloudwatchService {
     step?: string;
     stepOrder?: number;
   } {
-    // Common patterns from CodeBuild logs - patterns extracted inline where needed
-
     let phase: string | undefined;
     let step: string | undefined;
     let stepOrder: number | undefined;
+
+    // Check for phase transitions using patterns
+    if (/Phase complete:\s+(\w+)/i.test(message)) {
+      const match = message.match(/Phase complete:\s+(\w+)/i);
+      if (match) phase = match[1];
+    } else if (/Entering phase\s+(\w+)/i.test(message)) {
+      const match = message.match(/Entering phase\s+(\w+)/i);
+      if (match) phase = match[1];
+    } else if (/Running command\s+(.*)/i.test(message)) {
+      const match = message.match(/Running command\s+(.*)/i);
+      if (match) step = 'Running: ' + match[1].substring(0, 50);
+    }
 
     // Check for phase markers
     if (message.includes('DOWNLOAD_SOURCE')) {

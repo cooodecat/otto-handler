@@ -367,7 +367,6 @@ export class CodeBuildService {
         try {
           const executionId = buildId.split(':')[1]; // UUID 부분 사용
           const logStreamName = executionId; // CloudWatch 로그 스트림명
-
           const execution = this.executionRepository.create({
             executionId: executionId,
             executionType: ExecutionType.BUILD,
