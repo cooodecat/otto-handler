@@ -11,6 +11,7 @@ import { NestiaSwaggerComposer } from '@nestia/sdk';
 async function bootstrap() {
   const adapter = new FastifyAdapter({
     logger: process.env.NODE_ENV !== 'production',
+    trustProxy: true, // Important for Railway/Vercel
   });
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -69,6 +70,13 @@ async function bootstrap() {
     SwaggerModule.setup('docs', app, document as OpenAPIObject);
   }
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT ?? 3000;
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+
+  await app.listen(port, host);
+
+  console.log(`🚀 Server is running on http://${host}:${port}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 API Base Path: /api/v1`);
 }
 void bootstrap();
