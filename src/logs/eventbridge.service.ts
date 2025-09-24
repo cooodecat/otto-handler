@@ -123,10 +123,20 @@ export class EventBridgeService {
         !buildStatus &&
         event['detail-type'] === 'CodeBuild Build Phase Change'
       ) {
-        const detailAny = detail as any;
-        const phase = detailAny['current-phase'] || detailAny['completed-phase'];
+        // Use proper type casting for phase change events
+        interface PhaseChangeDetail extends CodeBuildDetail {
+          'current-phase'?: string;
+          'completed-phase'?: string;
+          'current-phase-status'?: string;
+          'completed-phase-status'?: string;
+        }
+        const phaseDetail = detail as PhaseChangeDetail;
+        const phase =
+          phaseDetail['current-phase'] || phaseDetail['completed-phase'] || '';
         const phaseStatus =
-          detailAny['current-phase-status'] || detailAny['completed-phase-status'];
+          phaseDetail['current-phase-status'] ||
+          phaseDetail['completed-phase-status'] ||
+          '';
         this.logger.log(
           `Phase change event - Phase: ${phase}, Status: ${phaseStatus}`,
         );
@@ -231,7 +241,7 @@ export class EventBridgeService {
         status: buildStatus,
         timestamp: new Date().toISOString(),
       };
-      await this.broadcastStatusEvent(execution.executionId, statusEvent);
+      this.broadcastStatusEvent(execution.executionId, statusEvent);
       const logEvent = this.createLogEvent(execution, event) as unknown;
       this.broadcastLogEvent(execution.executionId, logEvent);
 
@@ -353,7 +363,7 @@ export class EventBridgeService {
         );
       } catch (error) {
         this.logger.error(
-          `Failed to start CloudWatch polling: ${error.message}`,
+          `Failed to start CloudWatch polling: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
       }
     } catch (error) {
@@ -407,7 +417,24 @@ export class EventBridgeService {
     }
   }
 
-  private createLogEvent(execution: Execution, event: EventBridgeEvent): any {
+  private createLogEvent(
+    execution: Execution,
+    event: EventBridgeEvent,
+  ): {
+    executionId: string;
+    timestamp: string;
+    type: string;
+    level: LogLevel;
+    message: string;
+    metadata: {
+      buildId: string;
+      status: string;
+      phase?: string;
+      phaseContext?: string;
+      projectName: string;
+      source: string;
+    };
+  } {
     const { detail } = event;
 
     return {
@@ -442,14 +469,21 @@ export class EventBridgeService {
   private async saveLogToDatabase(
     execution: Execution,
     event: EventBridgeEvent,
-    logEvent: any,
+    logEvent: {
+      message: string;
+      level: LogLevel;
+      executionId: string;
+      timestamp: string;
+      type: string;
+      metadata: any;
+    },
   ): Promise<void> {
     try {
       const logData = {
         executionId: execution.executionId,
         timestamp: new Date(event.time),
-        message: (logEvent as any).message as string,
-        level: (logEvent as any).level,
+        message: logEvent.message,
+        level: logEvent.level,
       };
 
       await this.logStorageService.saveLogs([logData]);
@@ -475,10 +509,11 @@ export class EventBridgeService {
     return `[${projectName}] Build ${status}`;
   }
 
-  private broadcastLogEvent(executionId: string, _logEvent: unknown): void {
+  private broadcastLogEvent(executionId: string, logEvent: unknown): void {
     try {
-      // Events are now broadcasted through LogBufferService event emitter
-      this.logger.debug(`Log event ready for execution ${executionId}`);
+      // Broadcast the log event through the gateway
+      this.logsGateway.broadcastLogs(executionId, [logEvent]);
+      this.logger.debug(`Broadcast log event for execution ${executionId}`);
     } catch (error) {
       this.logger.error(
         `Failed to process log event for execution ${executionId}:`,
@@ -489,12 +524,17 @@ export class EventBridgeService {
 
   private broadcastStatusEvent(
     executionId: string,
-    statusEvent: any,
+    statusEvent: {
+      executionId: string;
+      type: string;
+      status: string;
+      timestamp: string;
+    },
   ): void {
     try {
       // Normalize AWS CodeBuild statuses to internal ExecutionStatus for frontend
       const normalized = this.mapBuildStatusToExecutionStatus(
-        statusEvent.status as string,
+        statusEvent.status,
       );
       // Status broadcasts now handled through status change methods
       this.logsGateway.broadcastStatusChange(executionId, normalized);
