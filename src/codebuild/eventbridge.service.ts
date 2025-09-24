@@ -31,11 +31,12 @@ export class EventBridgeService {
     codebuildProjectName: string,
   ): Promise<string> {
     // EventBridge Rule 이름은 64자 제한
-    // codebuildProjectName이 otto-development-{uuid}-build 형태
+    // codebuildProjectName이 otto-development-{uuid}-build 또는 otto-production-{uuid}-build 형태
     // UUID 부분만 추출하여 사용
     const parts = codebuildProjectName.split('-');
     const projectId = parts[parts.length - 2]; // UUID 부분 추출
-    const ruleName = `otto-dev-${projectId}`;
+    const environment = process.env.NODE_ENV === 'production' ? 'prod' : 'dev';
+    const ruleName = `otto-${environment}-${projectId}`;
 
     try {
       // 1. EventBridge Rule 생성
@@ -105,7 +106,8 @@ export class EventBridgeService {
     // 생성 시와 동일한 로직으로 Rule 이름 생성
     const parts = codebuildProjectName.split('-');
     const projectId = parts[parts.length - 2];
-    const ruleName = `otto-dev-${projectId}`;
+    const environment = process.env.NODE_ENV === 'production' ? 'prod' : 'dev';
+    const ruleName = `otto-${environment}-${projectId}`;
 
     try {
       // 1. 먼저 타겟 제거
