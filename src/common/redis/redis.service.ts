@@ -9,29 +9,56 @@ export class RedisService implements OnModuleDestroy {
   private readonly eventTTL = 3600; // 1 hour
 
   constructor(private configService: ConfigService) {
-    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
-    const port = this.configService.get<number>('REDIS_PORT', 6379);
-    const password = this.configService.get<string>('REDIS_PASSWORD');
-    const username = this.configService.get<string>('REDIS_USER', 'default');
+    // First check if REDIS_URL is provided (Railway style)
+    const redisUrl = this.configService.get<string>('REDIS_URL');
 
-    // Log configuration (without password for security)
-    this.logger.log(
-      `Initializing Redis connection to ${host}:${port} with username: ${username}`,
-    );
+    if (redisUrl) {
+      // Use Redis URL directly (Railway deployment)
+      this.logger.log('Initializing Redis connection using REDIS_URL');
 
-    this.client = new Redis({
-      host,
-      port,
-      password: password || undefined,
-      username: password ? username : undefined, // Only use username if password is set
-      retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      lazyConnect: false,
-    });
+      this.client = new Redis(redisUrl, {
+        retryStrategy: (times) => {
+          const delay = Math.min(times * 50, 2000);
+          return delay;
+        },
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        lazyConnect: false,
+        enableOfflineQueue: true,
+        reconnectOnError: (err) => {
+          const targetError = 'READONLY';
+          if (err.message.includes(targetError)) {
+            // Only reconnect when the error contains "READONLY"
+            return true;
+          }
+          return false;
+        },
+      });
+    } else {
+      // Fallback to individual config (local development)
+      const host = this.configService.get<string>('REDIS_HOST', 'localhost');
+      const port = this.configService.get<number>('REDIS_PORT', 6379);
+      const password = this.configService.get<string>('REDIS_PASSWORD');
+      const username = this.configService.get<string>('REDIS_USER', 'default');
+
+      this.logger.log(
+        `Initializing Redis connection to ${host}:${port} with username: ${username}`,
+      );
+
+      this.client = new Redis({
+        host,
+        port,
+        password: password || undefined,
+        username: password ? username : undefined,
+        retryStrategy: (times) => {
+          const delay = Math.min(times * 50, 2000);
+          return delay;
+        },
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        lazyConnect: false,
+      });
+    }
 
     this.client.on('connect', () => {
       this.logger.log('Redis client connected');
