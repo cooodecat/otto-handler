@@ -27,6 +27,9 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
     credentials: true,
   },
   namespace: '/logs',
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000,
 })
 export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

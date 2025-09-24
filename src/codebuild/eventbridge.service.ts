@@ -105,6 +105,19 @@ export class EventBridgeService {
       const statementId = `${ruleName}-permission`;
 
       try {
+        // 먼저 기존 권한 제거 시도 (중복 방지)
+        try {
+          await this.lambdaClient.send(
+            new RemovePermissionCommand({
+              FunctionName: lambdaArn.split(':').pop(),
+              StatementId: statementId,
+            }),
+          );
+          this.logger.log(`Removed existing permission: ${statementId}`);
+        } catch {
+          // 권한이 없으면 무시
+        }
+
         await this.lambdaClient.send(
           new AddPermissionCommand({
             FunctionName: lambdaArn.split(':').pop(), // Lambda 함수 이름 추출
