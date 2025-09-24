@@ -17,7 +17,25 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
   cors: {
     origin:
       process.env.NODE_ENV === 'production'
-        ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
+        ? (() => {
+            const list: string[] = [];
+            if (process.env.CORS_ORIGIN) {
+              list.push(
+                ...process.env.CORS_ORIGIN.split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              );
+            }
+            if (process.env.FRONTEND_URL) {
+              list.push(process.env.FRONTEND_URL);
+            }
+            // Fallback to previously hardcoded domains if nothing provided
+            if (list.length === 0) {
+              list.push('https://codecat-otto.shop', 'https://www.codecat-otto.shop');
+            }
+            // De-duplicate
+            return Array.from(new Set(list));
+          })()
         : [
             process.env.FRONTEND_URL || 'http://localhost:5173',
             'http://localhost:5173',
