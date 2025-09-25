@@ -437,7 +437,7 @@ export class EventBridgeService {
           metadata.ottoProjectId = ottoProjectId;
           metadata.pipelineId = pipelineId;
           metadata.projectName = detail['project-name']; // 기존 project name 유지
-          
+
           this.logger.log(
             `   ✅ Environment Variables 추출 성공: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
           );
