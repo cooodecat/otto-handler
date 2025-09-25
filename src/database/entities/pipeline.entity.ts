@@ -4,10 +4,12 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Project } from './project.entity';
+import { Deployment } from './deployment.entity';
 
 @Entity()
 export class Pipeline {
@@ -46,4 +48,8 @@ export class Pipeline {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  // Relations
+  @OneToMany(() => Deployment, (deployment) => deployment.pipeline)
+  deployments: Deployment[];
 }

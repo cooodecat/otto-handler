@@ -6,8 +6,15 @@ import { Pipeline } from '../database/entities/pipeline.entity';
 import { AwsEcsService } from '../aws/aws-ecs.service';
 import { AwsAlbService } from '../aws/aws-alb.service';
 import { AwsRoute53Service } from '../aws/aws-route53.service';
+import { AwsInfrastructureService } from '../aws/aws-infrastructure.service';
 import { HealthCheckService } from './health-check.service';
 import { ConfigService } from '@nestjs/config';
+import { DeploymentTrackerService } from './deployment-tracker.service';
+import {
+  Deployment,
+  DeploymentStatus,
+  DeploymentType,
+} from '../database/entities/deployment.entity';
 import {
   EC2Client,
   DescribeSubnetsCommand,
@@ -33,6 +40,8 @@ export class DeploymentService {
     private readonly albService: AwsAlbService,
     private readonly route53Service: AwsRoute53Service,
     private readonly healthCheckService: HealthCheckService,
+    private readonly deploymentTracker: DeploymentTrackerService,
+    private readonly infrastructureService: AwsInfrastructureService,
     private configService: ConfigService,
   ) {
     this.ec2Client = new EC2Client({
@@ -44,12 +53,17 @@ export class DeploymentService {
   }
 
   /**
-   * 빌드 성공 후 배포 프로세스 실행
-   * 1. deployUrl 생성 (없는 경우 - 10자리 해시.codecat-otto.shop 형식)
-   * 2. code-cat ECS 클러스터에 서비스 생성/업데이트
-   * 3. code-cat ALB 생성 또는 기존 ALB 사용 (공통 ALB 하나로 운영)
-   * 4. ALB 타겟 그룹 설정 및 라우팅 규칙 추가
-   * 5. Route53 DNS 레코드 생성 (서브도메인 -> ALB 연결)
+   * 빌드 성공 후 이벤트 기반 배포 프로세스 실행
+   *
+   * 🔄 이벤트 기반 배포 플로우:
+   * 1. 배포 추적 시작 → PENDING
+   * 2. 리소스 설정 → IN_PROGRESS
+   * 3. ECS 서비스 배포 → DEPLOYING_ECS (EventBridge 모니터링 시작)
+   * 4. ALB 설정 → CONFIGURING_ALB
+   * 5. 헬스체크 대기 → WAITING_HEALTH_CHECK (EventBridge 모니터링)
+   * 6. 배포 완료 → SUCCESS (EventBridge 자동 정리)
+   *
+   * ✨ 폴링 제거: 모든 상태 변경은 EventBridge 이벤트로 감지
    */
   async deployAfterBuild(
     pipelineId: string,
@@ -59,34 +73,40 @@ export class DeploymentService {
     ecsServiceArn: string;
     targetGroupArn: string;
     albDnsName: string;
+    deploymentId: string; // 추가: 배포 추적 ID
   }> {
-    this.logger.log(`🚀 배포 시작: pipelineId=${pipelineId}, userId=${userId}`);
-    this.logger.log(`📋 [STEP 1/7] 파이프라인 정보 조회 중...`);
+    // 🚀 STEP 1: 배포 추적 시작
+    this.logger.log(
+      `🚀 이벤트 기반 배포 시작: pipelineId=${pipelineId}, userId=${userId}`,
+    );
 
-    // 1. 파이프라인 정보 조회 (ecrImageUri가 있어야 함 - 빌드 성공 조건)
+    // 1-1. 파이프라인 정보 조회
     const pipeline = await this.pipelineRepository.findOne({
       where: { pipelineId },
       relations: ['project'],
     });
 
     if (!pipeline || !pipeline.ecrImageUri) {
-      this.logger.error(
-        `❌ [STEP 1/7] 실패: 파이프라인을 찾을 수 없거나 ECR 이미지가 없습니다`,
-      );
+      this.logger.error(`❌ 파이프라인을 찾을 수 없거나 ECR 이미지가 없습니다`);
       throw new Error(
         '파이프라인을 찾을 수 없거나 ECR 이미지가 없습니다 (빌드가 완료되지 않음)',
       );
     }
 
-    this.logger.log(`✅ [STEP 1/7] 완료: 빌드된 ECR 이미지 발견`);
-    this.logger.log(`   📦 이미지 URI: ${pipeline.ecrImageUri}`);
-    this.logger.log(`   ⚙️  포트: ${pipeline.deployOption?.port || 3000}`);
-    this.logger.log(
-      `   🖥️  명령어: ${pipeline.deployOption?.command || 'npm start'}`,
-    );
-    this.logger.log(
-      `   🌍 환경변수: ${pipeline.env ? Object.keys(pipeline.env).length + '개' : '없음'}`,
-    );
+    this.logger.log(`✅ 빌드된 ECR 이미지 발견: ${pipeline.ecrImageUri}`);
+
+    // 1-2. 배포 추적 시작
+    const deployment = await this.deploymentTracker.startDeploymentTracking({
+      pipelineId,
+      userId,
+      projectId: pipeline.projectId,
+      deploymentType: pipeline.deployUrl
+        ? DeploymentType.UPDATE
+        : DeploymentType.INITIAL,
+      ecrImageUri: pipeline.ecrImageUri,
+    });
+
+    this.logger.log(`📊 배포 추적 시작: ${deployment.deploymentId}`);
 
     this.logger.log(`📋 [STEP 2/7] 배포 URL 생성/확인 중...`);
 
@@ -119,26 +139,26 @@ export class DeploymentService {
       pipeline, // pipeline 객체 전달하여 포트 정보 접근
     );
 
-    this.logger.log(`📋 [STEP 5/8] ECS 서비스 생성/업데이트 중...`);
+    this.logger.log(`📋 [STEP 5/8] ALB 라우팅 규칙 추가 중...`);
 
-    // 5-1. CloudWatch 로그 그룹 생성 (ECS 태스크용)
-    await this.ensureLogGroupExists(pipelineId);
-
-    // 5-2. code-cat 클러스터에 ECS 서비스 생성/업데이트 (타겟 그룹 연결 포함)
-    const ecsServiceResult = await this.setupEcsService(
-      pipeline,
-      userId,
-      deployUrl,
-      targetGroupResult.targetGroupArn, // 타겟 그룹 ARN 전달
-    );
-
-    this.logger.log(`📋 [STEP 6/8] ALB 라우팅 규칙 추가 중...`);
-
-    // 6. ALB 리스너에 라우팅 규칙 추가
+    // 5. ALB 리스너에 라우팅 규칙 추가 (ECS 서비스보다 먼저 실행)
     await this.setupAlbRouting(
       albResult.listenerArn,
       deployUrl,
       targetGroupResult.targetGroupArn,
+    );
+
+    this.logger.log(`📋 [STEP 6/8] ECS 서비스 생성/업데이트 중...`);
+
+    // 6-1. CloudWatch 로그 그룹 생성 (ECS 태스크용)
+    await this.ensureLogGroupExists(pipelineId);
+
+    // 6-2. code-cat 클러스터에 ECS 서비스 생성/업데이트 (타겟 그룹 연결 포함)
+    const ecsServiceResult = await this.setupEcsService(
+      pipeline,
+      userId,
+      deployUrl,
+      targetGroupResult.targetGroupArn, // 이제 ALB에 연결된 타겟 그룹 ARN 전달
     );
 
     this.logger.log(`📋 [STEP 7/8] Route53 DNS 설정 중...`);
@@ -150,21 +170,59 @@ export class DeploymentService {
       albResult.canonicalHostedZoneId,
     );
 
-    // 8. ECS 서비스 생성 시 로드밸런서를 연결했으므로 자동으로 타겟 등록됨
-    this.logger.log(
-      `📋 [STEP 8/8] ECS 서비스가 로드밸런서에 연결되어 자동으로 타겟 등록됩니다.`,
+    // 🚀 STEP 6: 변수 정의 (파이프라인 기반 네이밍)
+    // 인프라 구성 조회
+    const infrastructure =
+      await this.infrastructureService.getOrCreateInfrastructure();
+    const clusterName = infrastructure.cluster.name;
+    const serviceName = `otto-${pipeline.pipelineId}`;
+
+    this.logger.log(`📦 파이프라인 기반 서비스명: ${serviceName}`);
+
+    this.logger.log(`✅ [STEP 6/6] 배포 리소스 생성 완료!`);
+    this.logger.log(`   🌐 배포 URL: https://${deployUrl}`);
+    this.logger.log(`   📦 ECS 서비스: ${ecsServiceResult.serviceArn}`);
+
+    // 🎯 EventBridge 기반 모니터링 시작 - 더 이상 폴링하지 않음!
+    this.logger.log(`🎯 ECS/ALB 이벤트 모니터링 시작...`);
+
+    // ECS 서비스 EventBridge 추적 설정
+    await this.deploymentTracker.setupEcsEventTracking(
+      deployment.deploymentId,
+      serviceName,
+      clusterName,
     );
 
-    this.logger.log(`🎉 [완료] 배포 성공!`);
-    this.logger.log(`   🌐 접속 URL: http://${deployUrl}`);
-    this.logger.log(`   🔗 ALB DNS: ${albResult.dnsName}`);
-    this.logger.log(`   📦 ECS 서비스: ${ecsServiceResult.serviceArn}`);
+    // ALB 타겟 헬스 EventBridge 추적 설정
+    await this.deploymentTracker.setupTargetHealthTracking(
+      deployment.deploymentId,
+      targetGroupResult.targetGroupArn,
+    );
+
+    // 배포 정보 업데이트
+    await this.deploymentTracker.updateDeploymentStatus(
+      deployment.deploymentId,
+      DeploymentStatus.WAITING_HEALTH_CHECK,
+      {
+        deployUrl,
+        ecsServiceArn: ecsServiceResult.serviceArn,
+        targetGroupArn: targetGroupResult.targetGroupArn,
+        albArn: albResult.albArn,
+        albDnsName: albResult.dnsName,
+      },
+    );
+
+    this.logger.log(`🎉 [배포 설정 완료] EventBridge가 나머지를 처리합니다!`);
+    this.logger.log(`   🌐 배포 URL: https://${deployUrl}`);
+    this.logger.log(`   📊 배포 추적: ${deployment.deploymentId}`);
+    this.logger.log(`   🎯 ECS/ALB 이벤트로 자동 완료될 예정`);
 
     return {
       deployUrl,
       ecsServiceArn: ecsServiceResult.serviceArn,
       targetGroupArn: targetGroupResult.targetGroupArn,
       albDnsName: albResult.dnsName,
+      deploymentId: deployment.deploymentId,
     };
   }
 
@@ -192,9 +250,12 @@ export class DeploymentService {
     deployUrl: string,
     targetGroupArn?: string, // 타겟 그룹 ARN 추가
   ): Promise<{ serviceArn: string }> {
-    const clusterName = 'code-cat';
-    const serviceName = `service-${pipeline.pipelineId}`;
-    const taskFamily = `task-${pipeline.pipelineId}`;
+    // 인프라 구성 사용 (이미 조회됨)
+    const infrastructure =
+      await this.infrastructureService.getOrCreateInfrastructure();
+    const clusterName = infrastructure.cluster.name;
+    const serviceName = `otto-${pipeline.pipelineId}`;
+    const taskFamily = `otto-task-${pipeline.pipelineId}`;
 
     this.logger.log(
       `   🔧 ECS 서비스: ${serviceName} (클러스터: ${clusterName})`,
@@ -230,15 +291,16 @@ export class DeploymentService {
             logConfiguration: {
               logDriver: 'awslogs',
               options: {
-                'awslogs-group': `/ecs/code-cat/${pipeline.pipelineId}`,
+                'awslogs-group': `/ecs/otto-pipelines/${pipeline.pipelineId}`,
                 'awslogs-region': process.env.AWS_REGION || 'ap-northeast-2',
-                'awslogs-stream-prefix': 'ecs',
+                'awslogs-stream-prefix': 'otto',
               },
             },
             environment: [
               { name: 'NODE_ENV', value: 'production' },
               { name: 'PORT', value: containerPort.toString() },
               { name: 'DEPLOY_URL', value: deployUrl },
+              { name: 'DEBUG', value: 'codecat-express:*' }, // Express 앱 시작 로그 활성화
               // pipeline.env가 있으면 추가 환경변수 설정
               ...(pipeline.env
                 ? Object.entries(pipeline.env).map(([name, value]) => ({
@@ -284,17 +346,24 @@ export class DeploymentService {
       let serviceArn: string;
 
       if (serviceExists) {
-        // 3-1. 기존 서비스 업데이트 (롤링 배포)
-        this.logger.log(`   🔄 롤링 배포 시작...`);
+        // 3-1. 기존 서비스 업데이트 (Zero Downtime 롤링 배포)
+        this.logger.log(`   🔄 Zero Downtime 롤링 배포 시작...`);
+        this.logger.log(
+          `   📈 desiredCount: 1 → 2 (새 태스크와 기존 태스크 동시 실행)`,
+        );
+
         const updateResult = await this.ecsService.updateService(
           clusterName,
           serviceName,
-          1, // desiredCount
+          2, // ✅ desiredCount를 2로 증가 → Zero Downtime
           taskDefinition.taskDefinition?.taskDefinitionArn,
         );
         serviceArn = updateResult.service?.serviceArn || '';
-        this.logger.log(`✅ [STEP 5/7] 완료: ECS 서비스 업데이트`);
+        this.logger.log(`✅ Zero Downtime 롤링 배포 시작됨!`);
         this.logger.log(`   🔗 서비스 ARN: ${serviceArn}`);
+        this.logger.log(
+          `   🎯 ECS가 자동으로 새 태스크 배포 → 기존 태스크 종료`,
+        );
       } else {
         // 3-2. 새 서비스 생성
         this.logger.log(`   🏗️  새 서비스 생성 중...`);
@@ -307,7 +376,7 @@ export class DeploymentService {
           cluster: clusterName,
           taskDefinition:
             taskDefinition.taskDefinition?.taskDefinitionArn || '',
-          desiredCount: 1,
+          desiredCount: 2, // ✅ 새 서비스도 2개로 시작 (고가용성)
           launchType: 'FARGATE',
           networkConfiguration: {
             awsvpcConfiguration: {
@@ -350,7 +419,10 @@ export class DeploymentService {
     vpcId: string;
     canonicalHostedZoneId: string;
   }> {
-    const albName = 'code-cat-balancer';
+    const albName = this.configService.get<string>(
+      'AWS_ALB_NAME',
+      'otto-main-alb',
+    );
 
     this.logger.log(`   🔍 ALB 확인: ${albName}`);
 
@@ -481,11 +553,11 @@ export class DeploymentService {
               path: '/', // 루트 경로로 헬스체크 (기본적으로 응답하는 경로)
               protocol: 'HTTP',
               port: containerPort.toString(), // 헬스체크도 동적 포트 사용
-              intervalSeconds: 30,
-              timeoutSeconds: 5,
+              intervalSeconds: 60, // 60초 간격으로 체크
+              timeoutSeconds: 15, // 15초 타임아웃
               healthyThresholdCount: 2,
               unhealthyThresholdCount: 5, // 더 관대하게 설정
-              matcher: '200,404', // 404도 healthy로 간주 (페이지가 없어도 서버는 응답중)
+              matcher: '200-499', // 500번대 에러 아니면 모두 성공으로 처리
             },
           });
           targetGroupArn = targetGroup.arn;
@@ -506,57 +578,73 @@ export class DeploymentService {
   }
 
   /**
-   * ALB 리스너에 라우팅 규칙 추가
+   * ALB 리스너에 라우팅 규칙 추가/업데이트 (Zero Downtime)
    * 호스트 헤더 기반으로 각 서비스로 라우팅
+   * ✅ 삭제/재생성 대신 수정으로 다운타임 방지
    */
   private async setupAlbRouting(
     listenerArn: string,
     deployUrl: string,
     targetGroupArn: string,
   ): Promise<void> {
-    this.logger.log(`   🌐 라우팅 규칙: ${deployUrl} → 타겟 그룹`);
+    this.logger.log(
+      `   🌐 Zero Downtime 라우팅 규칙: ${deployUrl} → 타겟 그룹`,
+    );
 
     try {
-      // 1. 기존 규칙 확인 및 삭제
+      // 1. 기존 규칙 확인
       const existingRules = await this.albService.findRulesByHostHeader(
         listenerArn,
         deployUrl,
       );
 
       if (existingRules.length > 0) {
+        // ✅ 기존 규칙이 있으면 수정 (다운타임 없음)
+        const existingRule = existingRules[0];
         this.logger.log(
-          `   🗑️  기존 규칙 ${existingRules.length}개 삭제 중...`,
+          `   🔄 기존 규칙 수정: Priority ${existingRule.priority}`,
         );
 
-        for (const rule of existingRules) {
-          await this.albService.deleteRule(rule.ruleArn);
-          this.logger.log(`   ✅ 규칙 삭제: Priority ${rule.priority}`);
-        }
+        await this.albService.modifyRule({
+          ruleArn: existingRule.ruleArn,
+          actions: [
+            {
+              type: 'forward',
+              targetGroupArn,
+            },
+          ],
+        });
+
+        this.logger.log(`✅ 기존 ALB 규칙 수정 완료 (Zero Downtime)`);
+      } else {
+        // 새 규칙 생성 (첫 배포)
+        this.logger.log(`   🆕 새 ALB 규칙 생성...`);
+
+        await this.albService.createListenerRule({
+          listenerArn,
+          conditions: [
+            {
+              field: 'host-header',
+              values: [deployUrl],
+            },
+          ],
+          actions: [
+            {
+              type: 'forward',
+              targetGroupArn,
+            },
+          ],
+          priority: Math.floor(Math.random() * 50000) + 1,
+        });
+
+        this.logger.log(`✅ 새 ALB 규칙 생성 완료`);
       }
 
-      // 2. 새 규칙 추가
-      await this.albService.createListenerRule({
-        listenerArn,
-        conditions: [
-          {
-            field: 'host-header',
-            values: [deployUrl],
-          },
-        ],
-        actions: [
-          {
-            type: 'forward',
-            targetGroupArn,
-          },
-        ],
-        priority: Math.floor(Math.random() * 50000) + 1, // 랜덤 우선순위
-      });
-
-      this.logger.log(`✅ [STEP 6/8] 완료: ALB 라우팅 규칙 설정`);
+      this.logger.log(`✅ ALB 라우팅 설정 완료 (Zero Downtime)`);
       this.logger.log(`   🌐 호스트 헤더: ${deployUrl}`);
       this.logger.log(`   🎯 타겟 그룹: ${targetGroupArn}`);
     } catch (error) {
-      this.logger.error(`❌ [STEP 6/8] 실패: ALB 라우팅 설정 - ${error}`);
+      this.logger.error(`❌ ALB 라우팅 설정 실패 - ${error}`);
       throw new Error(`ALB 라우팅 설정 실패: ${error}`);
     }
   }
@@ -647,45 +735,26 @@ export class DeploymentService {
 
   /**
    * 사용 가능한 서브넷 ID 목록 조회
-   * 기본 VPC의 퍼블릭 서브넷들을 반환
+   * Infrastructure Service에서 자동 발견된 서브넷들을 사용
    */
   private async getAvailableSubnets(): Promise<{
     subnetIds: string[];
     vpcId: string;
   }> {
     try {
-      const command = new DescribeSubnetsCommand({
-        Filters: [
-          {
-            Name: 'default-for-az',
-            Values: ['true'],
-          },
-          {
-            Name: 'state',
-            Values: ['available'],
-          },
-        ],
-      });
+      const infrastructure =
+        await this.infrastructureService.getOrCreateInfrastructure();
 
-      const result = await this.ec2Client.send(command);
-      const subnets = result.Subnets || [];
-
-      if (subnets.length === 0) {
-        throw new Error('사용 가능한 서브넷을 찾을 수 없습니다');
-      }
-
-      const subnetIds = subnets
-        .map((subnet) => subnet.SubnetId)
-        .filter(Boolean) as string[];
-      const vpcId = subnets[0].VpcId; // 모든 서브넷은 같은 VPC에 있어야 함
+      const subnetIds = infrastructure.subnets.map((subnet) => subnet.id);
+      const vpcId = infrastructure.vpc.id;
 
       this.logger.log(
         `   🌐 발견된 서브넷: ${subnetIds.join(', ')} (VPC: ${vpcId})`,
       );
 
-      return { subnetIds, vpcId: vpcId! };
+      return { subnetIds, vpcId };
     } catch (error) {
-      this.logger.error(`서브넷 조회 실패: ${error}`);
+      this.logger.error(`인프라 구성 조회 실패: ${error}`);
       // 폴백: 환경변수에서 가져오기
       const fallbackSubnets = this.configService.get<string>(
         'AWS_ECS_SUBNETS',
@@ -695,7 +764,7 @@ export class DeploymentService {
       if (fallbackSubnets && fallbackVpc) {
         return { subnetIds: fallbackSubnets.split(','), vpcId: fallbackVpc };
       }
-      throw new Error(`서브넷 조회 실패: ${error}`);
+      throw new Error(`인프라 구성 조회 실패: ${error}`);
     }
   }
 
@@ -704,7 +773,7 @@ export class DeploymentService {
    * ECS 태스크가 로그를 기록할 수 있도록 로그 그룹을 미리 생성
    */
   private async ensureLogGroupExists(pipelineId: string): Promise<void> {
-    const logGroupName = `/ecs/code-cat/${pipelineId}`;
+    const logGroupName = `/ecs/otto-pipelines/${pipelineId}`;
 
     try {
       this.logger.log(`   📝 CloudWatch 로그 그룹 확인: ${logGroupName}`);
@@ -756,137 +825,29 @@ export class DeploymentService {
     }
   }
 
-  /**
-   * ECS 서비스의 타겟을 타겟 그룹에 자동 등록/업데이트
-   * 기존 타겟은 제거하고 새로운 태스크의 IP를 등록
-   */
-  private async updateTargetGroupTargets(
-    serviceArn: string,
-    targetGroupArn: string,
-    containerPort: number,
-  ): Promise<void> {
-    try {
-      const arnParts = serviceArn.split('/');
-      const clusterName = arnParts[1];
-      const serviceName = arnParts[2];
-
-      this.logger.log(`   🔗 ECS 서비스: ${serviceName}`);
-      this.logger.log(`   🎯 타겟 그룹: ${targetGroupArn}`);
-      this.logger.log(`   🔌 컨테이너 포트: ${containerPort}`);
-
-      // 1. 기존 타겟들 조회 및 제거
-      const existingTargets =
-        await this.albService.getTargetHealth(targetGroupArn);
-      if (existingTargets.length > 0) {
-        this.logger.log(
-          `   🗑️  기존 타겟 ${existingTargets.length}개 제거 중...`,
-        );
-
-        for (const target of existingTargets) {
-          await this.albService.deregisterTarget(targetGroupArn, {
-            id: target.target.id,
-            port: target.target.port || containerPort,
-          });
-          this.logger.log(
-            `   ✅ 타겟 제거: ${target.target.id}:${target.target.port}`,
-          );
-        }
-      }
-
-      // 2. 현재 실행 중인 태스크들의 IP 조회
-      let retryCount = 0;
-      const maxRetries = 10;
-      let taskIps: string[] = [];
-
-      while (retryCount < maxRetries) {
-        // 서비스의 태스크 목록 조회
-        const tasks = await this.ecsService.listTasks(clusterName, serviceName);
-
-        if (tasks.taskArns && tasks.taskArns.length > 0) {
-          // 태스크 상세 정보 조회
-          const taskDetails = await this.ecsService.describeTasks(
-            clusterName,
-            tasks.taskArns,
-          );
-
-          taskIps =
-            taskDetails.tasks
-              ?.filter((task) => task.lastStatus === 'RUNNING')
-              .map((task) => {
-                const eni = task.attachments?.[0]?.details?.find(
-                  (detail) => detail.name === 'privateIPv4Address',
-                );
-                return eni?.value;
-              })
-              .filter((ip): ip is string => Boolean(ip)) || [];
-
-          if (taskIps.length > 0) {
-            break;
-          }
-        }
-
-        this.logger.log(
-          `   ⏳ 실행 중인 태스크 대기 중... (${retryCount + 1}/${maxRetries})`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 3000)); // 3초 대기
-        retryCount++;
-      }
-
-      if (taskIps.length === 0) {
-        throw new Error('실행 중인 태스크를 찾을 수 없습니다');
-      }
-
-      // 3. 새로운 타겟들 등록
-      this.logger.log(`   ➕ 새로운 타겟 ${taskIps.length}개 등록 중...`);
-
-      for (const ip of taskIps) {
-        await this.albService.registerTarget(targetGroupArn, {
-          id: ip,
-          port: containerPort,
-        });
-        this.logger.log(`   ✅ 타겟 등록: ${ip}:${containerPort}`);
-      }
-
-      this.logger.log(`✅ [STEP 8/8] 완료: 타겟 그룹 업데이트`);
-      this.logger.log(`   🎯 등록된 타겟: ${taskIps.join(', ')}`);
-    } catch (error) {
-      this.logger.error(`❌ [STEP 8/8] 실패: 타겟 그룹 업데이트 - ${error}`);
-      throw new Error(`타겟 그룹 업데이트 실패: ${error}`);
-    }
-  }
+  // ❌ REMOVED: updateTargetGroupTargets 메서드 제거됨
+  // 🎯 이제 ECS가 자동으로 ALB 타겟을 관리하고, EventBridge가 상태를 알려줍니다!
 
   /**
-   * 특정 VPC의 기본 보안 그룹 ID 목록 조회
-   * 지정된 VPC의 default 보안 그룹을 반환
+   * 특정 VPC의 보안 그룹 ID 목록 조회
+   * Infrastructure Service에서 자동 발견/생성된 보안 그룹 사용
    */
   private async getDefaultSecurityGroups(vpcId: string): Promise<string[]> {
     try {
-      const command = new DescribeSecurityGroupsCommand({
-        Filters: [
-          {
-            Name: 'group-name',
-            Values: ['default'],
-          },
-          {
-            Name: 'vpc-id',
-            Values: [vpcId],
-          },
-        ],
-      });
+      const infrastructure =
+        await this.infrastructureService.getOrCreateInfrastructure();
 
-      const result = await this.ec2Client.send(command);
-      const sgIds =
-        result.SecurityGroups?.map((sg) => sg.GroupId).filter(Boolean) || [];
+      const sgIds = infrastructure.securityGroups.map((sg) => sg.id);
 
       this.logger.log(`   🔒 VPC ${vpcId}의 보안 그룹: ${sgIds.join(', ')}`);
 
       if (sgIds.length === 0) {
-        throw new Error(`VPC ${vpcId}에서 기본 보안 그룹을 찾을 수 없습니다`);
+        throw new Error(`VPC ${vpcId}에서 보안 그룹을 찾을 수 없습니다`);
       }
 
-      return sgIds as string[];
+      return sgIds;
     } catch (error) {
-      this.logger.error(`보안 그룹 조회 실패: ${error}`);
+      this.logger.error(`인프라 구성 조회 실패: ${error}`);
       // 폴백: 환경변수에서 가져오기
       const fallbackSgs = this.configService.get<string>(
         'AWS_ECS_SECURITY_GROUPS',
@@ -895,7 +856,7 @@ export class DeploymentService {
       if (fallbackSgs) {
         return fallbackSgs.split(',');
       }
-      throw new Error(`보안 그룹 조회 실패: ${error}`);
+      throw new Error(`인프라 구성 조회 실패: ${error}`);
     }
   }
 }
