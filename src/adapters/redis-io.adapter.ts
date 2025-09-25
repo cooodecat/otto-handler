@@ -51,7 +51,7 @@ export class RedisIoAdapter extends IoAdapter {
     const corsOrigins = (() => {
       if (process.env.NODE_ENV === 'production') {
         const origins: string[] = [];
-        
+
         // Add CORS_ORIGIN environment variable origins
         if (process.env.CORS_ORIGIN) {
           origins.push(
@@ -60,22 +60,28 @@ export class RedisIoAdapter extends IoAdapter {
               .filter(Boolean),
           );
         }
-        
+
         // Add FRONTEND_URL
         if (process.env.FRONTEND_URL) {
           origins.push(process.env.FRONTEND_URL);
           // Also add www variant if not present
-          if (process.env.FRONTEND_URL.includes('://') && !process.env.FRONTEND_URL.includes('www.')) {
+          if (
+            process.env.FRONTEND_URL.includes('://') &&
+            !process.env.FRONTEND_URL.includes('www.')
+          ) {
             const wwwUrl = process.env.FRONTEND_URL.replace('://', '://www.');
             origins.push(wwwUrl);
           }
         }
-        
+
         // Fallback to known production domains
         if (origins.length === 0) {
-          origins.push('https://codecat-otto.shop', 'https://www.codecat-otto.shop');
+          origins.push(
+            'https://codecat-otto.shop',
+            'https://www.codecat-otto.shop',
+          );
         }
-        
+
         return Array.from(new Set(origins));
       } else {
         return [

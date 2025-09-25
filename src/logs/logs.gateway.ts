@@ -31,8 +31,14 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
             if (process.env.FRONTEND_URL) {
               list.push(process.env.FRONTEND_URL);
               // Also add www variant if not present
-              if (process.env.FRONTEND_URL.includes('://') && !process.env.FRONTEND_URL.includes('www.')) {
-                const wwwUrl = process.env.FRONTEND_URL.replace('://', '://www.');
+              if (
+                process.env.FRONTEND_URL.includes('://') &&
+                !process.env.FRONTEND_URL.includes('www.')
+              ) {
+                const wwwUrl = process.env.FRONTEND_URL.replace(
+                  '://',
+                  '://www.',
+                );
                 list.push(wwwUrl);
               }
             }
@@ -80,8 +86,10 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleConnection(client: Socket): void {
     // Log connection attempt with details
     const origin = client.handshake.headers.origin;
-    this.logger.log(`WebSocket connection attempt from: ${origin || 'unknown origin'}`);
-    
+    this.logger.log(
+      `WebSocket connection attempt from: ${origin || 'unknown origin'}`,
+    );
+
     // JWT 토큰 검증 (개발 환경에서는 선택적)
     const token = client.handshake.auth.token as string;
 
@@ -95,7 +103,9 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const user = this.validateToken(token);
       if (!user) {
-        this.logger.warn(`Invalid token for client ${client.id} from ${origin}`);
+        this.logger.warn(
+          `Invalid token for client ${client.id} from ${origin}`,
+        );
         // 개발 환경에서는 토큰 검증 실패해도 연결 허용
         if (process.env.NODE_ENV === 'development') {
           (client.data as Record<string, unknown>).userId = 'dev-user-no-auth';
@@ -103,16 +113,18 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           return;
         }
         // Send error message before disconnecting
-        client.emit('error', { 
-          message: 'Authentication failed: Invalid token', 
-          code: 'AUTH_FAILED' 
+        client.emit('error', {
+          message: 'Authentication failed: Invalid token',
+          code: 'AUTH_FAILED',
         });
         client.disconnect();
         return;
       }
 
       (client.data as Record<string, unknown>).userId = user.userId;
-      this.logger.log(`Client connected: ${client.id}, User: ${user.userId}, Origin: ${origin}`);
+      this.logger.log(
+        `Client connected: ${client.id}, User: ${user.userId}, Origin: ${origin}`,
+      );
     } catch (error) {
       this.logger.error(
         `Authentication failed for client ${client.id} from ${origin}:`,
@@ -127,10 +139,10 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
       // Send error message before disconnecting
-      client.emit('error', { 
-        message: 'Authentication error', 
+      client.emit('error', {
+        message: 'Authentication error',
         code: 'AUTH_ERROR',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
       client.disconnect();
     }
