@@ -46,16 +46,50 @@ async function bootstrap() {
       'test-callback.html',
     ],
   });
+  // Build CORS origins list consistently across the app
+  const corsOrigins = (() => {
+    if (process.env.NODE_ENV === 'production') {
+      const origins: string[] = [];
+      
+      // Add CORS_ORIGIN environment variable origins
+      if (process.env.CORS_ORIGIN) {
+        origins.push(
+          ...process.env.CORS_ORIGIN.split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        );
+      }
+      
+      // Add FRONTEND_URL
+      if (process.env.FRONTEND_URL) {
+        origins.push(process.env.FRONTEND_URL);
+        // Also add www variant if not present
+        if (process.env.FRONTEND_URL.includes('://') && !process.env.FRONTEND_URL.includes('www.')) {
+          const wwwUrl = process.env.FRONTEND_URL.replace('://', '://www.');
+          origins.push(wwwUrl);
+        }
+      }
+      
+      // Fallback to known production domains
+      if (origins.length === 0) {
+        origins.push('https://codecat-otto.shop', 'https://www.codecat-otto.shop');
+      }
+      
+      const uniqueOrigins = Array.from(new Set(origins));
+      console.log('🌐 CORS origins configured:', uniqueOrigins);
+      return uniqueOrigins;
+    } else {
+      return [
+        process.env.FRONTEND_URL || 'http://localhost:5173',
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:5175',
+      ];
+    }
+  })();
+
   app.enableCors({
-    origin:
-      process.env.NODE_ENV === 'production'
-        ? ['https://codecat-otto.shop', 'https://www.codecat-otto.shop']
-        : [
-            process.env.FRONTEND_URL || 'http://localhost:5173',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:5175',
-          ],
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
