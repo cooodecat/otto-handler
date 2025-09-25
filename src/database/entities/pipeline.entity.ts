@@ -9,6 +9,22 @@ import {
 } from 'typeorm';
 import { Project } from './project.entity';
 
+// CICD Flow Node 인터페이스 정의
+export interface CICDNodeData {
+  blockType: string;
+  groupType: string;
+  blockId: string;
+  onSuccess: string | null;
+  onFailed: string | null;
+  [key: string]: unknown; // Dynamic properties for different node types
+}
+
+// Pipeline data structure 인터페이스 정의
+export interface PipelineData {
+  flowNodes?: CICDNodeData[];
+  [key: string]: unknown; // Allow for additional pipeline configuration
+}
+
 @Entity()
 export class Pipeline {
   @PrimaryGeneratedColumn('uuid')
@@ -22,7 +38,7 @@ export class Pipeline {
   project: Project;
 
   @Column({ type: 'json' })
-  data: any;
+  data: PipelineData;
 
   @Column()
   pipelineName: string;

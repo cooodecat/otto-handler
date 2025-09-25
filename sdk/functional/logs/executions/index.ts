@@ -12,6 +12,7 @@ import type { ExecutionResponseDto } from "../../../structures/ExecutionResponse
 export * as register from "./register/index";
 export * as logs from "./logs/index";
 export * as status from "./status/index";
+export * as check_stale from "./check_stale/index";
 export * as archive_url from "./archive_url/index";
 
 /**

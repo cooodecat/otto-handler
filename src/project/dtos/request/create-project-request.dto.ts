@@ -1,12 +1,4 @@
-// Flow 노드 타입 (frontend와 동일)
-interface AnyCICDNodeData {
-  blockType: string;
-  groupType: string;
-  blockId: string;
-  onSuccess: string | null;
-  onFailed: string | null;
-  [key: string]: any;
-}
+import { CICDNodeData } from '../../../database/entities/pipeline.entity';
 
 export interface CreateProjectRequestDto {
   /** 프로젝트 이름 */
@@ -24,7 +16,7 @@ export interface CreateProjectRequestDto {
   /** GitHub App 설치 ID */
   installationId?: string;
   /** CI/CD Flow 노드 데이터 */
-  flowNodes?: AnyCICDNodeData[];
+  flowNodes?: CICDNodeData[];
 
   // AWS 관련 필드들은 Backend에서 자동 생성 (Frontend에서 제거)
   /** CodeBuild 프로젝트 이름 (Backend 자동 생성) */

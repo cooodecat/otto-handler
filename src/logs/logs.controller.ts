@@ -240,6 +240,26 @@ export class LogsController {
     };
   }
 
+  @Post('executions/check-stale')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Manually check for stale executions' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns number of checked and updated executions',
+  })
+  async checkStaleExecutions(): Promise<{
+    checked: number;
+    updated: number;
+    message: string;
+  }> {
+    const result = await this.logsService.checkStaleExecutionsManually();
+
+    return {
+      ...result,
+      message: `Checked ${result.checked} executions, updated ${result.updated} to their actual status`,
+    };
+  }
+
   @Get('executions/:id/archive-url')
   @ApiOperation({ summary: 'Get S3 archive URL for completed execution' })
   @ApiParam({ name: 'id', description: 'Execution ID' })

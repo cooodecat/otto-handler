@@ -1,3 +1,5 @@
+import { PipelineData } from '../../database/entities/pipeline.entity';
+
 export interface CreatePipelineRequestDto {
   /**
    * 프로젝트 ID
@@ -12,7 +14,7 @@ export interface CreatePipelineRequestDto {
   /**
    * 파이프라인 데이터 (JSON)
    */
-  data: any;
+  data: PipelineData;
 }
 
 export interface UpdatePipelineRequestDto {
@@ -24,7 +26,7 @@ export interface UpdatePipelineRequestDto {
   /**
    * 파이프라인 데이터 (JSON)
    */
-  data?: any;
+  data?: PipelineData;
 
   /**
    * env 관련
