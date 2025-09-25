@@ -22,10 +22,11 @@ export class AuthService {
   ) {}
 
   /**
-   * 리프레시 토큰으로 로그인 (토큰 회전)
+   * 리프레시 토큰으로 로그인 (토큰 회전 with grace period)
    * - 전달받은 refresh 토큰을 조회
    * - 만료/미존재 시 Unauthorized
-   * - 기존 토큰 레코드는 삭제하고, 새 JWT 토큰을 발급/저장
+   * - 기존 토큰은 revoke 처리 (즉시 삭제하지 않음 - race condition 방지)
+   * - 새 JWT 토큰을 발급/저장
    * - 새 access, refresh 토큰과 TTL 반환
    */
   async loginByRefresh(
@@ -46,13 +47,16 @@ export class AuthService {
     }
 
     if (existing.expiresAt.getTime() <= Date.now()) {
-      // 만료된 토큰은 정리
-      await this.refreshTokenRepository.remove(existing);
+      // 만료된 토큰은 revoke 처리
+      existing.isRevoked = true;
+      await this.refreshTokenRepository.save(existing);
       throw new UnauthorizedException(AuthErrorEnum.REFRESH_FAIL);
     }
 
-    // 기존 토큰 삭제
-    await this.refreshTokenRepository.remove(existing);
+    // 기존 토큰을 revoke 처리 (즉시 삭제하지 않음)
+    // Grace period를 위해 5분 후에 cleanup job으로 삭제
+    existing.isRevoked = true;
+    await this.refreshTokenRepository.save(existing);
 
     // 우리만의 JWT 토큰 생성
     const newJwtAccessToken: string = this.jwtService.encode(
@@ -75,6 +79,15 @@ export class AuthService {
     });
     await this.refreshTokenRepository.save(refreshTokenEntity);
 
+    // 만료되거나 revoke된 토큰 정리 (1시간 이상 지난 것들)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    await this.refreshTokenRepository
+      .createQueryBuilder()
+      .delete()
+      .where('isRevoked = :isRevoked', { isRevoked: true })
+      .andWhere('updatedAt < :oneHourAgo', { oneHourAgo })
+      .execute();
+
     const result = {
       message: AuthResponseEnum.LOGIN_SUCCESS,
       accessToken: newJwtAccessToken,
@@ -92,19 +105,20 @@ export class AuthService {
   }
 
   /**
-   * 로그아웃 처리 (특정 refresh token 삭제 + 쿠키 제거)
+   * 로그아웃 처리 (refresh token revoke + 쿠키 제거)
    */
   async logout(
     refreshToken: string,
     response: FastifyReply,
   ): Promise<{ message: string }> {
     try {
-      // 해당 refresh token 삭제
+      // 해당 refresh token을 revoke 처리
       const token = await this.refreshTokenRepository.findOne({
         where: { token: refreshToken },
       });
       if (token) {
-        await this.refreshTokenRepository.remove(token);
+        token.isRevoked = true;
+        await this.refreshTokenRepository.save(token);
       }
     } catch (error) {
       // 토큰이 존재하지 않아도 로그아웃은 성공으로 처리
