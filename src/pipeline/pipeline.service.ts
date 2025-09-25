@@ -136,7 +136,7 @@ export class PipelineService {
     }
 
     if (updatePipelineDto.data !== undefined) {
-      pipeline.data = updatePipelineDto.data as object;
+      pipeline.data = updatePipelineDto.data;
     }
 
     // env 필드 업데이트 (환경변수)
@@ -256,8 +256,7 @@ export class PipelineService {
     );
 
     // 파이프라인 data에서 flowNodes 추출
-    const flowNodes =
-      (pipeline.data as { flowNodes?: unknown[] })?.flowNodes || [];
+    const flowNodes = pipeline.data?.flowNodes || [];
     this.logger.log(
       `Flow nodes from pipeline: ${JSON.stringify(flowNodes, null, 2)}`,
     );
@@ -268,7 +267,7 @@ export class PipelineService {
       userId: project.userId,
       projectId: project.projectId,
       pipelineId: pipelineId,
-      flowNodes: flowNodes as any[],
+      flowNodes: flowNodes,
     });
 
     // ECR 이미지 URI 생성
@@ -436,7 +435,7 @@ export class PipelineService {
       pipelineId: pipeline.pipelineId,
       projectId: pipeline.projectId,
       pipelineName: pipeline.pipelineName,
-      data: pipeline.data as object,
+      data: pipeline.data,
       ecrImageUri: pipeline.ecrImageUri,
       imageTag: pipeline.imageTag,
       createdAt: pipeline.createdAt,

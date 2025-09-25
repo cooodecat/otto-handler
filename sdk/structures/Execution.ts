@@ -30,6 +30,7 @@ export type Execution = {
       });
   startedAt: string & Format<"date-time">;
   completedAt?: undefined | (string & Format<"date-time">);
+  duration?: undefined | number;
   updatedAt: string & Format<"date-time">;
   logs: ExecutionLog[];
   archives: ExecutionArchive[];

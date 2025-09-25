@@ -65,7 +65,7 @@ export class EventBridgeService {
     private readonly logsGateway: LogsGateway,
     private readonly logsService: LogsService,
     private readonly configService: ConfigService,
-    private readonly logStorageService: LogStorageService,
+    private readonly logStorage: LogStorageService,
     private readonly cloudwatchService: CloudwatchService,
     @Inject(forwardRef(() => PipelineService))
     private readonly pipelineService: PipelineService,
@@ -388,20 +388,13 @@ export class EventBridgeService {
         STOPPED: ExecutionStatus.FAILED,
       };
 
-      execution.status = statusMap[status] || execution.status;
+      const newStatus = statusMap[status] || execution.status;
 
-      if (detail['additional-information']?.['end-time']) {
-        execution.completedAt = new Date(
-          detail['additional-information']['end-time'],
-        );
-      }
+      const metadata: Record<string, unknown> = {};
 
       if (detail['current-phase']) {
-        execution.metadata = {
-          ...execution.metadata,
-          currentPhase: detail['current-phase'],
-          currentPhaseContext: detail['current-phase-context'],
-        };
+        metadata.currentPhase = detail['current-phase'];
+        metadata.currentPhaseContext = detail['current-phase-context'];
       }
 
       // EventBridge 이벤트에서 environment variables 추출하여 metadata에 저장
@@ -440,13 +433,11 @@ export class EventBridgeService {
         );
 
         if (ottoUserId && ottoProjectId && pipelineId) {
-          execution.metadata = {
-            ...execution.metadata,
-            projectName: detail['project-name'], // 기존 project name 유지
-            ottoUserId,
-            ottoProjectId,
-            pipelineId,
-          };
+          metadata.ottoUserId = ottoUserId;
+          metadata.ottoProjectId = ottoProjectId;
+          metadata.pipelineId = pipelineId;
+          metadata.projectName = detail['project-name']; // 기존 project name 유지
+
           this.logger.log(
             `   ✅ Environment Variables 추출 성공: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
           );
@@ -459,9 +450,14 @@ export class EventBridgeService {
         this.logger.warn(`⚠️ environment-variables를 찾을 수 없습니다`);
       }
 
-      await this.executionRepository.save(execution);
+      // Use logsService.updateExecutionStatus to handle duration calculation and metadata update
+      await this.logsService.updateExecutionStatus(
+        execution.executionId,
+        newStatus,
+        metadata,
+      );
       this.logger.debug(
-        `Updated execution ${execution.executionId} status to ${execution.status}`,
+        `Updated execution ${execution.executionId} status to ${newStatus}`,
       );
     } catch (error) {
       this.logger.error(
@@ -541,7 +537,7 @@ export class EventBridgeService {
         level: logEvent.level,
       };
 
-      await this.logStorageService.saveLogs([logData]);
+      await this.logStorage.saveLogs([logData]);
       this.logger.debug(
         `Saved log to database for execution ${execution.executionId}`,
       );
@@ -647,6 +643,9 @@ export class EventBridgeService {
 
       // 🚀 빌드 성공 시 자동 배포 트리거
       if (status === 'SUCCEEDED') {
+        // Check if logs need recovery (SUCCESS but no logs)
+        await this.checkAndRecoverLogs(execution);
+
         await this.triggerDeploymentAfterBuild(execution);
       }
     } catch (error) {
@@ -654,6 +653,72 @@ export class EventBridgeService {
         `Failed to finalize execution ${execution.executionId}:`,
         error,
       );
+    }
+  }
+
+  /**
+   * Check if execution has logs and attempt recovery if needed
+   */
+  private async checkAndRecoverLogs(execution: Execution): Promise<void> {
+    try {
+      // Small delay to ensure CloudWatch logs are available
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Get execution with project relation
+      const fullExecution = await this.executionRepository.findOne({
+        where: { executionId: execution.executionId },
+        relations: ['project'],
+      });
+
+      if (!fullExecution) {
+        return;
+      }
+
+      // Check log count
+      const logCount = await this.logStorage.getExecutionLogCount(
+        execution.executionId,
+      );
+
+      if (logCount === 0) {
+        this.logger.log(
+          `Execution ${execution.executionId} completed successfully but has no logs. Attempting auto-recovery...`,
+        );
+
+        const recoveredCount =
+          await this.cloudwatchService.autoRecoverLogsForExecution(
+            fullExecution,
+          );
+
+        if (recoveredCount > 0) {
+          this.logger.log(
+            `✅ Auto-recovered ${recoveredCount} logs for execution ${execution.executionId}`,
+          );
+
+          // Broadcast recovered logs to connected clients
+          const recoveredLogs = await this.logStorage.getExecutionLogs(
+            execution.executionId,
+            1000,
+            0,
+          );
+
+          if (recoveredLogs.length > 0) {
+            this.logsGateway.broadcastLogs(
+              execution.executionId,
+              recoveredLogs,
+            );
+          }
+        }
+      } else {
+        this.logger.debug(
+          `Execution ${execution.executionId} already has ${logCount} logs`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to check/recover logs for execution ${execution.executionId}:`,
+        error,
+      );
+      // Don't throw - this is best-effort
     }
   }
 

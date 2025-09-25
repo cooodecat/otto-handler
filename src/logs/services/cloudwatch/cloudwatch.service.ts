@@ -207,6 +207,200 @@ export class CloudwatchService {
     return LogLevel.INFO;
   }
 
+  /**
+   * Fetch all logs at once and save to database (for recovery)
+   */
+  async fetchAndSaveAllLogs(
+    executionId: string,
+    logGroupName: string,
+    logStreamName: string,
+  ): Promise<number> {
+    this.logger.log(
+      `Fetching all logs for execution ${executionId}
+      - Log Group: ${logGroupName}
+      - Log Stream: ${logStreamName}`,
+    );
+
+    const execution = await this.executionRepository.findOne({
+      where: { executionId },
+    });
+
+    if (!execution) {
+      this.logger.error(`Execution ${executionId} not found in database`);
+      throw new Error(`Execution ${executionId} not found`);
+    }
+
+    this.logger.log(
+      `Found execution: ${JSON.stringify({
+        executionId: execution.executionId,
+        status: execution.status,
+        awsBuildId: execution.awsBuildId,
+        logStreamName: execution.logStreamName,
+      })}`,
+    );
+
+    let nextToken: string | undefined;
+    let totalLogsSaved = 0;
+    let attempts = 0;
+    const maxAttempts = 10; // Prevent infinite loops
+
+    try {
+      while (attempts < maxAttempts) {
+        attempts++;
+
+        const input = {
+          logGroupName,
+          logStreamName,
+          nextToken,
+          startFromHead: !nextToken,
+        };
+
+        this.logger.log(
+          `Fetching logs attempt ${attempts}/${maxAttempts}, nextToken: ${nextToken ? 'present' : 'null'}`,
+        );
+
+        const command = new GetLogEventsCommand(input);
+        const response = await this.client.send(command);
+
+        this.logger.log(
+          `CloudWatch response: ${response.events?.length || 0} events, nextToken: ${response.nextForwardToken ? 'present' : 'null'}`,
+        );
+
+        if (response.events && response.events.length > 0) {
+          const logs: LogEvent[] = response.events.map((event) => {
+            const { phase, step, stepOrder } = this.parseLogPhaseAndStep(
+              event.message!,
+            );
+            return {
+              executionId,
+              timestamp: new Date(event.timestamp!),
+              message: event.message!,
+              level: this.detectLogLevel(event.message!),
+              phase,
+              step,
+              stepOrder,
+            };
+          });
+
+          // Save to database
+          await this.logStorage.saveLogs(logs);
+          totalLogsSaved += logs.length;
+
+          this.logger.log(
+            `Saved ${logs.length} logs for execution ${executionId} (total: ${totalLogsSaved})`,
+          );
+        }
+
+        // Check if there are more logs
+        if (
+          response.nextForwardToken === nextToken ||
+          !response.nextForwardToken
+        ) {
+          // No more logs
+          break;
+        }
+
+        nextToken = response.nextForwardToken;
+      }
+
+      this.logger.log(
+        `Finished fetching logs for execution ${executionId}. Total saved: ${totalLogsSaved}`,
+      );
+
+      return totalLogsSaved;
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch logs for execution ${executionId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+      if (error instanceof Error) {
+        this.logger.error(
+          `Error details: ${JSON.stringify({
+            name: error.name,
+            message: error.message,
+            stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+          })}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Auto-recover logs for executions that are complete but have no logs
+   */
+  async autoRecoverLogsForExecution(execution: Execution): Promise<number> {
+    try {
+      // Check if execution already has logs
+      const existingLogCount = await this.logStorage.getExecutionLogCount(
+        execution.executionId,
+      );
+
+      if (existingLogCount > 0) {
+        this.logger.debug(
+          `Execution ${execution.executionId} already has ${existingLogCount} logs, skipping recovery`,
+        );
+        return existingLogCount;
+      }
+
+      // Determine CloudWatch log group
+      let logGroupName: string;
+      const logStreamName: string =
+        execution.logStreamName || execution.executionId;
+
+      // First, try to use the cloudwatchLogGroup from the project entity
+      if (execution.project?.cloudwatchLogGroup) {
+        logGroupName = execution.project.cloudwatchLogGroup;
+      } else {
+        // Build log group name based on environment pattern
+        const nodeEnv = process.env.NODE_ENV || 'development';
+        const environment =
+          nodeEnv === 'production' ? 'production' : 'development';
+
+        // Pattern: /aws/codebuild/otto/{environment}/{userId}/{projectId}
+        if (execution.userId && execution.projectId) {
+          logGroupName = `/aws/codebuild/otto/${environment}/${execution.userId}/${execution.projectId}`;
+        } else if (execution.projectId) {
+          // Fallback without userId
+          logGroupName = `/aws/codebuild/otto/${environment}/${execution.projectId}`;
+        } else {
+          this.logger.warn(
+            `Cannot determine log group for execution ${execution.executionId}: missing projectId`,
+          );
+          return 0;
+        }
+      }
+
+      this.logger.log(
+        `Auto-recovering logs for execution ${execution.executionId} from ${logGroupName}/${logStreamName}`,
+      );
+
+      // Attempt to fetch and save logs
+      const recoveredCount = await this.fetchAndSaveAllLogs(
+        execution.executionId,
+        logGroupName,
+        logStreamName,
+      );
+
+      if (recoveredCount > 0) {
+        this.logger.log(
+          `Successfully auto-recovered ${recoveredCount} logs for execution ${execution.executionId}`,
+        );
+      }
+
+      return recoveredCount;
+    } catch (error) {
+      this.logger.error(
+        `Failed to auto-recover logs for execution ${execution.executionId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+      // Don't throw - auto-recovery is best-effort
+      return 0;
+    }
+  }
+
   private parseLogPhaseAndStep(message: string): {
     phase?: string;
     step?: string;

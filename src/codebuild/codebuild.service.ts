@@ -20,15 +20,7 @@ import {
   ExecutionStatus,
 } from '../database/entities/execution.entity';
 
-// Flow 노드 타입 (frontend와 동일)
-interface AnyCICDNodeData {
-  blockType: string;
-  groupType: string;
-  blockId: string;
-  onSuccess: string | null;
-  onFailed: string | null;
-  [key: string]: any;
-}
+import { CICDNodeData } from '../database/entities/pipeline.entity';
 
 @Injectable()
 export class CodeBuildService {
@@ -72,7 +64,7 @@ export class CodeBuildService {
     projectName: string;
     githubRepositoryUrl: string;
     branch: string;
-    flowNodes: AnyCICDNodeData[];
+    flowNodes: CICDNodeData[];
     buildImage?: string;
     computeType?: string;
     timeoutInMinutes?: number;
@@ -260,7 +252,7 @@ export class CodeBuildService {
     userId: string;
     projectId: string;
     pipelineId?: string;
-    flowNodes?: AnyCICDNodeData[];
+    flowNodes?: CICDNodeData[];
   }): Promise<{
     buildId: string;
     buildNumber: string;
