@@ -1,5 +1,3 @@
-const https = require('https');
-
 exports.handler = async (event) => {
     console.log('Lambda function started');
     console.log('Received EventBridge event:', JSON.stringify(event, null, 2));
@@ -14,138 +12,122 @@ exports.handler = async (event) => {
     const url = `${BACKEND_URL}/api/v1/events/process`;
     console.log('Target URL:', url);
     
-    // Parse URL for https request
-    const urlParts = new URL(url);
-    
     const postData = JSON.stringify(event);
     console.log('Request body size:', postData.length, 'bytes');
     
-    const options = {
-        hostname: urlParts.hostname,
-        port: 443,
-        path: urlParts.pathname,
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(postData),
-            'x-api-key': API_KEY
-        },
-        timeout: 20000, // 20 seconds timeout
-        rejectUnauthorized: true // Enable SSL certificate validation
-    };
+    const startTime = Date.now();
+    console.log('Starting fetch request...');
     
-    console.log('Request options:', {
-        hostname: options.hostname,
-        path: options.path,
-        method: options.method,
-        headers: {
-            ...options.headers,
-            'x-api-key': 'hidden'
-        }
-    });
-    
-    return new Promise((resolve, reject) => {
-        const startTime = Date.now();
-        console.log('Starting HTTPS request...');
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 seconds timeout
         
-        const req = https.request(options, (res) => {
-            const responseTime = Date.now() - startTime;
-            console.log('Response received in', responseTime, 'ms');
-            console.log('Response status code:', res.statusCode);
-            console.log('Response headers:', JSON.stringify(res.headers));
-            
-            let data = '';
-            
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            
-            res.on('end', () => {
-                console.log('Response body:', data);
-                
-                try {
-                    const parsedData = JSON.parse(data);
-                    console.log('Backend response:', parsedData);
-                    
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        resolve({
-                            statusCode: 200,
-                            body: JSON.stringify({
-                                success: true,
-                                message: 'Event processed successfully',
-                                backendResponse: parsedData
-                            })
-                        });
-                    } else {
-                        console.error('Backend returned error status:', res.statusCode);
-                        resolve({
-                            statusCode: res.statusCode,
-                            body: JSON.stringify({
-                                success: false,
-                                message: `Backend returned status ${res.statusCode}`,
-                                backendResponse: parsedData
-                            })
-                        });
-                    }
-                } catch (parseError) {
-                    console.error('Failed to parse response:', parseError);
-                    console.error('Raw response:', data);
-                    resolve({
-                        statusCode: 500,
-                        body: JSON.stringify({
-                            success: false,
-                            message: 'Failed to parse backend response',
-                            rawResponse: data
-                        })
-                    });
-                }
-            });
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': API_KEY
+            },
+            body: postData,
+            signal: controller.signal
         });
         
-        req.on('error', (error) => {
-            const errorTime = Date.now() - startTime;
-            console.error('Request failed after', errorTime, 'ms');
-            console.error('Request error:', error);
-            console.error('Error code:', error.code);
-            console.error('Error message:', error.message);
-            
-            if (error.code === 'ECONNREFUSED') {
-                console.error('Connection refused - backend might be down');
-            } else if (error.code === 'ETIMEDOUT') {
-                console.error('Request timed out');
-            } else if (error.code === 'CERT_HAS_EXPIRED' || error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-                console.error('SSL certificate issue');
-            }
-            
-            resolve({
-                statusCode: 502,
+        clearTimeout(timeoutId);
+        
+        const responseTime = Date.now() - startTime;
+        console.log('Response received in', responseTime, 'ms');
+        console.log('Response status code:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        const responseText = await response.text();
+        console.log('Response body:', responseText);
+        
+        let parsedData;
+        try {
+            parsedData = JSON.parse(responseText);
+            console.log('Backend response:', parsedData);
+        } catch (parseError) {
+            console.error('Failed to parse response as JSON:', parseError);
+            parsedData = responseText;
+        }
+        
+        if (response.ok) {
+            return {
+                statusCode: 200,
+                body: JSON.stringify({
+                    success: true,
+                    message: 'Event processed successfully',
+                    backendResponse: parsedData
+                })
+            };
+        } else {
+            console.error('Backend returned error status:', response.status);
+            return {
+                statusCode: response.status,
                 body: JSON.stringify({
                     success: false,
-                    message: 'Failed to connect to backend',
-                    error: {
-                        code: error.code,
-                        message: error.message
-                    }
+                    message: `Backend returned status ${response.status}`,
+                    backendResponse: parsedData
                 })
-            });
-        });
+            };
+        }
+    } catch (error) {
+        const errorTime = Date.now() - startTime;
+        console.error('Request failed after', errorTime, 'ms');
+        console.error('Request error:', error);
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
         
-        req.on('timeout', () => {
+        // Handle specific error types
+        if (error.name === 'AbortError') {
             console.error('Request timeout after 20 seconds');
-            req.abort();
-            resolve({
+            return {
                 statusCode: 504,
                 body: JSON.stringify({
                     success: false,
                     message: 'Request timeout'
                 })
-            });
-        });
-        
-        // Send the request
-        console.log('Sending POST request with body...');
-        req.write(postData);
-        req.end();
-        console.log('Request sent, waiting for response...');
-    });
+            };
+        } else if (error.cause?.code === 'ECONNREFUSED') {
+            console.error('Connection refused - backend might be down');
+            return {
+                statusCode: 502,
+                body: JSON.stringify({
+                    success: false,
+                    message: 'Failed to connect to backend - connection refused',
+                    error: {
+                        code: 'ECONNREFUSED',
+                        message: error.message
+                    }
+                })
+            };
+        } else if (error.cause?.code === 'CERT_HAS_EXPIRED' || error.cause?.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+            console.error('SSL certificate issue');
+            return {
+                statusCode: 502,
+                body: JSON.stringify({
+                    success: false,
+                    message: 'SSL certificate verification failed',
+                    error: {
+                        code: error.cause?.code,
+                        message: error.message
+                    }
+                })
+            };
+        } else {
+            // Generic error handling
+            return {
+                statusCode: 502,
+                body: JSON.stringify({
+                    success: false,
+                    message: 'Failed to connect to backend',
+                    error: {
+                        name: error.name,
+                        message: error.message,
+                        code: error.cause?.code
+                    }
+                })
+            };
+        }
+    }
 };
