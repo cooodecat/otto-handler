@@ -50,6 +50,7 @@ import { CodeBuildModule } from '../codebuild/codebuild.module';
     LogStorageService,
     LogsService,
     EventBridgeService,
+    LogsGateway,
   ],
 })
 export class LogsModule {}

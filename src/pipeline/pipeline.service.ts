@@ -7,6 +7,7 @@ import { CodeBuildService } from '../codebuild/codebuild.service';
 import { ECRService } from '../codebuild/ecr.service';
 import { DeploymentService } from '../deployment/deployment.service';
 import { HealthCheckService } from '../deployment/health-check.service';
+import { PipelineCleanupService } from '../deployment/pipeline-cleanup.service';
 import type {
   CreatePipelineRequestDto,
   UpdatePipelineRequestDto,
@@ -27,6 +28,7 @@ export class PipelineService {
     private readonly ecrService: ECRService,
     private readonly deploymentService: DeploymentService,
     private readonly healthCheckService: HealthCheckService,
+    private readonly pipelineCleanupService: PipelineCleanupService,
   ) {}
 
   /**
@@ -180,9 +182,25 @@ export class PipelineService {
       throw new NotFoundException('Pipeline not found or access denied');
     }
 
-    await this.pipelineRepository.remove(pipeline);
+    this.logger.log(`🗑️ Starting pipeline deletion: ${pipelineId}`);
 
-    this.logger.log(`Pipeline deleted: ${pipelineId}`);
+    try {
+      // 1. AWS 리소스 정리 (ECS, ALB, Route53, EventBridge 등)
+      this.logger.log(
+        `🧹 Cleaning up AWS resources for pipeline: ${pipelineId}`,
+      );
+      await this.pipelineCleanupService.cleanupPipelineResources(pipelineId);
+
+      // 2. 데이터베이스에서 파이프라인 삭제
+      await this.pipelineRepository.remove(pipeline);
+
+      this.logger.log(`✅ Pipeline deleted successfully: ${pipelineId}`);
+    } catch (error) {
+      this.logger.error(`❌ Failed to delete pipeline ${pipelineId}: ${error}`);
+      throw new Error(
+        `파이프라인 삭제 실패: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**
@@ -272,12 +290,8 @@ export class PipelineService {
     });
 
     this.logger.log(`Build started successfully: ${buildResult.buildId}`);
-
-    // 🚀 빌드 완료 후 자동 배포 시작 (백그라운드에서 실행)
-    this.waitForBuildAndDeploy(buildResult.buildId, pipelineId, userId).catch(
-      (error) => {
-        this.logger.error(`빌드 완료 대기 및 배포 실패: ${error}`);
-      },
+    this.logger.log(
+      `🎯 EventBridge will automatically trigger deployment when build completes`,
     );
 
     return {
@@ -286,73 +300,6 @@ export class PipelineService {
       imageTag: buildResult.imageTag,
       ecrImageUri,
     };
-  }
-
-  /**
-   * 빌드 완료를 기다린 후 자동 배포 실행
-   * 백그라운드에서 빌드 상태를 폴링하다가 완료되면 배포 시작
-   */
-  private async waitForBuildAndDeploy(
-    buildId: string,
-    pipelineId: string,
-    userId: string,
-  ): Promise<void> {
-    this.logger.log(`🕐 빌드 완료 대기 시작: ${buildId}`);
-
-    const maxRetries = 180; // 최대 180번 시도 (30분)
-    const retryInterval = 10000; // 10초마다 확인
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        this.logger.log(`   [${attempt}/${maxRetries}] 빌드 상태 확인 중...`);
-
-        const buildStatus = await this.codeBuildService.getBuildStatus(buildId);
-
-        this.logger.log(`   빌드 상태: ${buildStatus.buildStatus}`);
-
-        if (buildStatus.buildStatus === 'SUCCEEDED') {
-          this.logger.log(`✅ 빌드 완료! 배포 시작...`);
-
-          // 자동 배포 실행
-          const deployResult = await this.deployAfterBuildSuccess(
-            pipelineId,
-            userId,
-          );
-
-          this.logger.log(`🎉 자동 배포 완료!`);
-          this.logger.log(`   🌐 배포 URL: https://${deployResult.deployUrl}`);
-          return;
-        }
-
-        if (
-          buildStatus.buildStatus === 'FAILED' ||
-          buildStatus.buildStatus === 'STOPPED'
-        ) {
-          this.logger.error(`❌ 빌드 실패: ${buildStatus.buildStatus}`);
-          return;
-        }
-
-        // 아직 진행 중이면 30초 후 다시 확인
-        if (attempt < maxRetries) {
-          this.logger.log(
-            `   ⏳ 빌드 진행 중... ${retryInterval / 1000}초 후 재확인`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, retryInterval));
-        }
-      } catch (error) {
-        this.logger.error(
-          `빌드 상태 확인 실패 (${attempt}/${maxRetries}): ${error}`,
-        );
-
-        if (attempt < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, retryInterval));
-        }
-      }
-    }
-
-    this.logger.error(
-      `⏰ 빌드 완료 대기 시간 초과 (${(maxRetries * retryInterval) / 1000 / 60}분)`,
-    );
   }
 
   /**

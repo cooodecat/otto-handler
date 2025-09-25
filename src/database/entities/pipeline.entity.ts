@@ -4,10 +4,12 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Project } from './project.entity';
+import { Deployment } from './deployment.entity';
 
 // CICD Flow Node 인터페이스 정의
 export interface CICDNodeData {
@@ -62,4 +64,8 @@ export class Pipeline {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  // Relations
+  @OneToMany(() => Deployment, (deployment) => deployment.pipeline)
+  deployments: Deployment[];
 }
