@@ -15,6 +15,11 @@ import { LogLevel } from '../database/entities/execution-log.entity';
 import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { PipelineService } from '../pipeline/pipeline.service';
+import { DeploymentEventsService } from '../deployment/deployment-events.service';
+import { 
+  EcsEventBridgeEvent, 
+  AlbTargetHealthEvent 
+} from '../deployment/deployment-events.service';
 
 export interface EventBridgeEvent {
   id: string;
@@ -69,6 +74,7 @@ export class EventBridgeService {
     private readonly cloudwatchService: CloudwatchService,
     @Inject(forwardRef(() => PipelineService))
     private readonly pipelineService: PipelineService,
+    private readonly deploymentEventsService: DeploymentEventsService,
     @InjectRepository(Execution)
     private executionRepository: Repository<Execution>,
     @InjectRepository(Pipeline)
@@ -98,7 +104,7 @@ export class EventBridgeService {
   }
 
   async processEvent(event: EventBridgeEvent): Promise<void> {
-    const { id: eventId, detail } = event;
+    const { id: eventId, source, 'detail-type': detailType } = event;
 
     try {
       // 이벤트 ID로 중복 체크 (네트워크 재시도 방지)
@@ -110,13 +116,41 @@ export class EventBridgeService {
 
       await this.redisService.saveEventHistory(eventId, event);
 
-      const buildId = detail['build-id'];
-      const buildStatus = detail['build-status'];
-      const projectName = detail['project-name'];
-
       this.logger.log(
-        `Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`,
+        `Processing EventBridge event: ${eventId}, Source: ${source}, Type: ${detailType}`,
       );
+
+      // 🔄 이벤트 소스별 라우팅
+      if (source === 'aws.codebuild') {
+        await this.handleCodeBuildEvent(event);
+      } else if (source === 'aws.ecs') {
+        await this.handleEcsEvent(event as EcsEventBridgeEvent);
+      } else if (source === 'aws.elasticloadbalancing') {
+        await this.handleAlbEvent(event as AlbTargetHealthEvent);
+      } else {
+        this.logger.warn(`Unknown event source: ${source}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to process EventBridge event ${eventId}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * CodeBuild 이벤트 처리 (기존 로직)
+   */
+  private async handleCodeBuildEvent(event: EventBridgeEvent): Promise<void> {
+    const { detail } = event;
+    const buildId = detail['build-id'];
+    const buildStatus = detail['build-status'];
+    const projectName = detail['project-name'];
+
+    this.logger.log(
+      `CodeBuild Event - Build: ${buildId}, Status: ${buildStatus}`,
+    );
 
       // Debug: Check if this is a Phase Change event
       if (
@@ -404,61 +438,6 @@ export class EventBridgeService {
         };
       }
 
-      // EventBridge 이벤트에서 environment variables 추출하여 metadata에 저장
-      this.logger.log(
-        `🔍 Debug: additional-information 존재 여부: ${!!detail['additional-information']}`,
-      );
-      this.logger.log(
-        `🔍 Debug: environment 존재 여부: ${!!detail['additional-information']?.environment}`,
-      );
-
-      const envVars =
-        detail['additional-information']?.environment?.[
-          'environment-variables'
-        ];
-      this.logger.log(
-        `🔍 Debug: environment-variables 개수: ${envVars ? envVars.length : 0}`,
-      );
-
-      if (envVars && Array.isArray(envVars)) {
-        // 모든 환경변수 로그 출력
-        this.logger.log(`🔍 Debug: 전체 환경변수 목록:`);
-        envVars.forEach((v, i) => {
-          this.logger.log(`  ${i + 1}. ${v.name} = ${v.value}`);
-        });
-
-        const ottoUserId = envVars.find(
-          (v) => v.name === 'OTTO_USER_ID',
-        )?.value;
-        const ottoProjectId = envVars.find(
-          (v) => v.name === 'OTTO_PROJECT_ID',
-        )?.value;
-        const pipelineId = envVars.find((v) => v.name === 'PIPELINE_ID')?.value;
-
-        this.logger.log(
-          `🔍 Debug: 추출된 값들 - userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
-        );
-
-        if (ottoUserId && ottoProjectId && pipelineId) {
-          execution.metadata = {
-            ...execution.metadata,
-            projectName: detail['project-name'], // 기존 project name 유지
-            ottoUserId,
-            ottoProjectId,
-            pipelineId,
-          };
-          this.logger.log(
-            `   ✅ Environment Variables 추출 성공: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
-          );
-        } else {
-          this.logger.warn(
-            `⚠️ 필요한 Environment Variables를 찾을 수 없습니다`,
-          );
-        }
-      } else {
-        this.logger.warn(`⚠️ environment-variables를 찾을 수 없습니다`);
-      }
-
       await this.executionRepository.save(execution);
       this.logger.debug(
         `Updated execution ${execution.executionId} status to ${execution.status}`,
@@ -669,86 +648,56 @@ export class EventBridgeService {
         `🚀 빌드 성공! 자동 배포 트리거 시작: buildId=${execution.awsBuildId}`,
       );
 
-      // Environment Variables에서 추출한 정보 우선 사용
-      const ottoUserId = execution.metadata?.ottoUserId as string | undefined;
-      const ottoProjectId = execution.metadata?.ottoProjectId as
-        | string
-        | undefined;
-      const pipelineId = execution.metadata?.pipelineId as string | undefined;
+      // awsBuildId로 pipeline 찾기 (빌드 시 pipeline 정보가 CodeBuild에 전달됨)
+      // 하지만 execution에 pipelineId가 직접 저장되어 있지 않으므로,
+      // buildId에서 pipelineId를 추출하거나 metadata에서 찾아야 함
 
-      if (ottoUserId && ottoProjectId && pipelineId) {
-        // Environment Variables에서 추출한 정확한 정보 사용
-        this.logger.log(
-          `   📋 Environment Variables 정보 사용: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
-        );
-
-        // 직접 파이프라인 ID로 조회
-        const pipeline = await this.pipelineRepository.findOne({
-          where: { pipelineId },
-          relations: ['project'],
-        });
-
-        if (pipeline) {
-          this.logger.log(`✅ 파이프라인 발견: ${pipeline.pipelineId}`);
-          await this.pipelineService.deployAfterBuildSuccess(
-            pipelineId,
-            ottoUserId,
-          );
-          this.logger.log(`🎉 자동 배포 트리거 완료: ${pipelineId}`);
-          return;
-        } else {
-          this.logger.warn(`파이프라인을 찾을 수 없습니다: ${pipelineId}`);
-        }
-      }
-
-      // 폴백: 기존 방식 (프로젝트 이름 파싱)
       const projectName = execution.metadata?.projectName as string | undefined;
       if (!projectName) {
         this.logger.warn(
-          `프로젝트 이름과 Environment Variables 모두 없습니다: execution=${execution.executionId}`,
+          `프로젝트 이름을 찾을 수 없습니다: execution=${execution.executionId}`,
         );
         return;
       }
 
-      // 프로젝트 이름에서 userId와 projectId 추출 (구 방식 - 오류 있음)
-      const nameMatch = projectName.match(
-        /^otto-(development|production)-(.+?)-build$/,
-      );
+      // 프로젝트 이름에서 userId와 projectId 추출
+      // 예: "otto-user123-proj456" -> userId="user123", projectId="proj456"
+      const nameMatch = projectName.match(/^otto-(.+)-(.+)$/);
       if (!nameMatch) {
         this.logger.warn(`프로젝트 이름 형식이 잘못되었습니다: ${projectName}`);
         return;
       }
 
-      const [, environment, projectId] = nameMatch as [string, string, string];
+      const [, userId, projectId] = nameMatch as [string, string, string];
       this.logger.log(
-        `   📋 프로젝트명 파싱 정보: environment=${environment}, projectId=${projectId}`,
+        `   📋 추출된 정보: userId=${userId}, projectId=${projectId}`,
       );
 
       // 해당 프로젝트의 가장 최근 파이프라인 찾기 (ecrImageUri가 있는 것)
-      // 폴백 방식: projectId만으로 검색 (userId를 모르므로)
       const pipeline = await this.pipelineRepository
         .createQueryBuilder('pipeline')
         .leftJoinAndSelect('pipeline.project', 'project')
-        .where('project.projectId = :projectId', { projectId })
+        .where('project.userId = :userId', { userId })
+        .andWhere('project.projectId = :projectId', { projectId })
         .andWhere('pipeline.ecrImageUri IS NOT NULL')
         .orderBy('pipeline.updatedAt', 'DESC')
         .getOne();
 
       if (!pipeline) {
         this.logger.warn(
-          `배포할 파이프라인을 찾을 수 없습니다: projectId=${projectId} (폴백 방식)`,
+          `배포할 파이프라인을 찾을 수 없습니다: userId=${userId}, projectId=${projectId}`,
         );
         return;
       }
 
       this.logger.log(`   ✅ 파이프라인 발견: ${pipeline.pipelineId}`);
 
-      // 자동 배포 시작 (project에서 userId 가져옴)
+      // 자동 배포 시작
       this.logger.log(`   🚀 자동 배포 시작...`);
       const deploymentResult =
         await this.pipelineService.deployAfterBuildSuccess(
           pipeline.pipelineId,
-          pipeline.project.userId,
+          userId,
         );
 
       this.logger.log(`🎉 자동 배포 완료!`);
@@ -775,6 +724,48 @@ export class EventBridgeService {
         timestamp: new Date().toISOString(),
       };
       this.logsGateway.broadcastLogs(execution.executionId, [errorEvent]);
+    }
+  }
+
+  /**
+   * ECS 이벤트 처리 - 배포 상태 추적
+   */
+  private async handleEcsEvent(event: EcsEventBridgeEvent): Promise<void> {
+    try {
+      const { 'detail-type': detailType } = event;
+      
+      this.logger.log(`ECS Event - Type: ${detailType}`);
+
+      if (detailType === 'ECS Service State Change') {
+        await this.deploymentEventsService.handleEcsServiceStateChange(event);
+      } else if (detailType === 'ECS Task State Change') {
+        await this.deploymentEventsService.handleEcsTaskStateChange(event);
+      } else {
+        this.logger.debug(`Unhandled ECS event type: ${detailType}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to handle ECS event: ${error}`);
+      // ECS 이벤트 처리 실패는 다른 이벤트에 영향을 주지 않도록 예외를 다시 던지지 않음
+    }
+  }
+
+  /**
+   * ALB 이벤트 처리 - 타겟 헬스 상태 추적
+   */
+  private async handleAlbEvent(event: AlbTargetHealthEvent): Promise<void> {
+    try {
+      const { 'detail-type': detailType } = event;
+      
+      this.logger.log(`ALB Event - Type: ${detailType}`);
+
+      if (detailType === 'ELB Target Health State Change') {
+        await this.deploymentEventsService.handleAlbTargetHealthStateChange(event);
+      } else {
+        this.logger.debug(`Unhandled ALB event type: ${detailType}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to handle ALB event: ${error}`);
+      // ALB 이벤트 처리 실패는 다른 이벤트에 영향을 주지 않도록 예외를 다시 던지지 않음
     }
   }
 

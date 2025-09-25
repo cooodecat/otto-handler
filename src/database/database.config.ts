@@ -10,6 +10,7 @@ import { GithubApp } from './entities/github-app.entity';
 import { Execution } from './entities/execution.entity';
 import { ExecutionLog } from './entities/execution-log.entity';
 import { ExecutionArchive } from './entities/execution-archive.entity';
+import { Deployment } from './entities/deployment.entity';
 
 @Injectable()
 export class DatabaseConfigService implements TypeOrmOptionsFactory {
@@ -31,6 +32,7 @@ export class DatabaseConfigService implements TypeOrmOptionsFactory {
         Execution,
         ExecutionLog,
         ExecutionArchive,
+        Deployment,
       ],
       synchronize: true, // Railway에서도 자동 동기화
       //logging: this.configService.get<string>('NODE_ENV') === 'development',
