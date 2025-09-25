@@ -186,7 +186,9 @@ export class PipelineService {
 
     try {
       // 1. AWS 리소스 정리 (ECS, ALB, Route53, EventBridge 등)
-      this.logger.log(`🧹 Cleaning up AWS resources for pipeline: ${pipelineId}`);
+      this.logger.log(
+        `🧹 Cleaning up AWS resources for pipeline: ${pipelineId}`,
+      );
       await this.pipelineCleanupService.cleanupPipelineResources(pipelineId);
 
       // 2. 데이터베이스에서 파이프라인 삭제
@@ -195,7 +197,9 @@ export class PipelineService {
       this.logger.log(`✅ Pipeline deleted successfully: ${pipelineId}`);
     } catch (error) {
       this.logger.error(`❌ Failed to delete pipeline ${pipelineId}: ${error}`);
-      throw new Error(`파이프라인 삭제 실패: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `파이프라인 삭제 실패: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -287,7 +291,9 @@ export class PipelineService {
     });
 
     this.logger.log(`Build started successfully: ${buildResult.buildId}`);
-    this.logger.log(`🎯 EventBridge will automatically trigger deployment when build completes`);
+    this.logger.log(
+      `🎯 EventBridge will automatically trigger deployment when build completes`,
+    );
 
     return {
       buildId: buildResult.buildId,
@@ -296,7 +302,6 @@ export class PipelineService {
       ecrImageUri,
     };
   }
-
 
   /**
    * 빌드 성공 후 배포 처리

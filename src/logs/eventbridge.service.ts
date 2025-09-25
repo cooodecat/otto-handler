@@ -405,25 +405,40 @@ export class EventBridgeService {
       }
 
       // EventBridge 이벤트에서 environment variables 추출하여 metadata에 저장
-      this.logger.log(`🔍 Debug: additional-information 존재 여부: ${!!detail['additional-information']}`);
-      this.logger.log(`🔍 Debug: environment 존재 여부: ${!!detail['additional-information']?.environment}`);
-      
-      const envVars = detail['additional-information']?.environment?.['environment-variables'];
-      this.logger.log(`🔍 Debug: environment-variables 개수: ${envVars ? envVars.length : 0}`);
-      
+      this.logger.log(
+        `🔍 Debug: additional-information 존재 여부: ${!!detail['additional-information']}`,
+      );
+      this.logger.log(
+        `🔍 Debug: environment 존재 여부: ${!!detail['additional-information']?.environment}`,
+      );
+
+      const envVars =
+        detail['additional-information']?.environment?.[
+          'environment-variables'
+        ];
+      this.logger.log(
+        `🔍 Debug: environment-variables 개수: ${envVars ? envVars.length : 0}`,
+      );
+
       if (envVars && Array.isArray(envVars)) {
         // 모든 환경변수 로그 출력
         this.logger.log(`🔍 Debug: 전체 환경변수 목록:`);
         envVars.forEach((v, i) => {
           this.logger.log(`  ${i + 1}. ${v.name} = ${v.value}`);
         });
-        
-        const ottoUserId = envVars.find(v => v.name === 'OTTO_USER_ID')?.value;
-        const ottoProjectId = envVars.find(v => v.name === 'OTTO_PROJECT_ID')?.value;
-        const pipelineId = envVars.find(v => v.name === 'PIPELINE_ID')?.value;
-        
-        this.logger.log(`🔍 Debug: 추출된 값들 - userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`);
-        
+
+        const ottoUserId = envVars.find(
+          (v) => v.name === 'OTTO_USER_ID',
+        )?.value;
+        const ottoProjectId = envVars.find(
+          (v) => v.name === 'OTTO_PROJECT_ID',
+        )?.value;
+        const pipelineId = envVars.find((v) => v.name === 'PIPELINE_ID')?.value;
+
+        this.logger.log(
+          `🔍 Debug: 추출된 값들 - userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
+        );
+
         if (ottoUserId && ottoProjectId && pipelineId) {
           execution.metadata = {
             ...execution.metadata,
@@ -433,10 +448,12 @@ export class EventBridgeService {
             pipelineId,
           };
           this.logger.log(
-            `   ✅ Environment Variables 추출 성공: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`
+            `   ✅ Environment Variables 추출 성공: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
           );
         } else {
-          this.logger.warn(`⚠️ 필요한 Environment Variables를 찾을 수 없습니다`);
+          this.logger.warn(
+            `⚠️ 필요한 Environment Variables를 찾을 수 없습니다`,
+          );
         }
       } else {
         this.logger.warn(`⚠️ environment-variables를 찾을 수 없습니다`);
@@ -654,7 +671,9 @@ export class EventBridgeService {
 
       // Environment Variables에서 추출한 정보 우선 사용
       const ottoUserId = execution.metadata?.ottoUserId as string | undefined;
-      const ottoProjectId = execution.metadata?.ottoProjectId as string | undefined;
+      const ottoProjectId = execution.metadata?.ottoProjectId as
+        | string
+        | undefined;
       const pipelineId = execution.metadata?.pipelineId as string | undefined;
 
       if (ottoUserId && ottoProjectId && pipelineId) {
@@ -662,7 +681,7 @@ export class EventBridgeService {
         this.logger.log(
           `   📋 Environment Variables 정보 사용: userId=${ottoUserId}, projectId=${ottoProjectId}, pipelineId=${pipelineId}`,
         );
-        
+
         // 직접 파이프라인 ID로 조회
         const pipeline = await this.pipelineRepository.findOne({
           where: { pipelineId },
@@ -671,7 +690,10 @@ export class EventBridgeService {
 
         if (pipeline) {
           this.logger.log(`✅ 파이프라인 발견: ${pipeline.pipelineId}`);
-          await this.pipelineService.deployAfterBuildSuccess(pipelineId, ottoUserId);
+          await this.pipelineService.deployAfterBuildSuccess(
+            pipelineId,
+            ottoUserId,
+          );
           this.logger.log(`🎉 자동 배포 트리거 완료: ${pipelineId}`);
           return;
         } else {
@@ -689,7 +711,9 @@ export class EventBridgeService {
       }
 
       // 프로젝트 이름에서 userId와 projectId 추출 (구 방식 - 오류 있음)
-      const nameMatch = projectName.match(/^otto-(development|production)-(.+?)-build$/);
+      const nameMatch = projectName.match(
+        /^otto-(development|production)-(.+?)-build$/,
+      );
       if (!nameMatch) {
         this.logger.warn(`프로젝트 이름 형식이 잘못되었습니다: ${projectName}`);
         return;

@@ -80,7 +80,7 @@ export class DeploymentTrackerService {
     const savedDeployment = await this.deploymentRepository.save(deployment);
 
     // 초기 진행 상황 브로드캐스트
-    await this.broadcastProgress(savedDeployment.deploymentId, {
+    this.broadcastProgress(savedDeployment.deploymentId, {
       status: DeploymentStatus.PENDING,
       step: 'initialization',
       message: '배포 준비 중...',
@@ -120,16 +120,17 @@ export class DeploymentTrackerService {
 
     // 상태 업데이트
     deployment.status = status;
-    
+
     // 필드별 업데이트
     if (updates.deployUrl) deployment.deployUrl = updates.deployUrl;
     if (updates.ecsServiceArn) deployment.ecsServiceArn = updates.ecsServiceArn;
     if (updates.ecsClusterArn) deployment.ecsClusterArn = updates.ecsClusterArn;
-    if (updates.targetGroupArn) deployment.targetGroupArn = updates.targetGroupArn;
+    if (updates.targetGroupArn)
+      deployment.targetGroupArn = updates.targetGroupArn;
     if (updates.albArn) deployment.albArn = updates.albArn;
     if (updates.albDnsName) deployment.albDnsName = updates.albDnsName;
     if (updates.errorMessage) deployment.errorMessage = updates.errorMessage;
-    
+
     // 메타데이터 병합
     if (updates.metadata) {
       deployment.metadata = {
@@ -159,16 +160,14 @@ export class DeploymentTrackerService {
     });
 
     // 진행 상황 브로드캐스트
-    await this.broadcastProgress(deploymentId, {
+    this.broadcastProgress(deploymentId, {
       status,
       step: this.getStepFromStatus(status),
       message: this.getMessageFromStatus(status),
       metadata: updates.metadata,
     });
 
-    this.logger.log(
-      `📊 Deployment ${deploymentId} status updated: ${status}`,
-    );
+    this.logger.log(`📊 Deployment ${deploymentId} status updated: ${status}`);
 
     return updatedDeployment;
   }
@@ -213,15 +212,11 @@ export class DeploymentTrackerService {
       this.logger.error(
         `❌ Failed to setup ECS event tracking for deployment ${deploymentId}: ${error}`,
       );
-      
-      await this.updateDeploymentStatus(
-        deploymentId,
-        DeploymentStatus.FAILED,
-        {
-          errorMessage: `ECS event tracking setup failed: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      );
-      
+
+      await this.updateDeploymentStatus(deploymentId, DeploymentStatus.FAILED, {
+        errorMessage: `ECS event tracking setup failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+
       throw error;
     }
   }
@@ -263,15 +258,11 @@ export class DeploymentTrackerService {
       this.logger.error(
         `❌ Failed to setup target health tracking for deployment ${deploymentId}: ${error}`,
       );
-      
-      await this.updateDeploymentStatus(
-        deploymentId,
-        DeploymentStatus.FAILED,
-        {
-          errorMessage: `Target health tracking setup failed: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      );
-      
+
+      await this.updateDeploymentStatus(deploymentId, DeploymentStatus.FAILED, {
+        errorMessage: `Target health tracking setup failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+
       throw error;
     }
   }
@@ -299,7 +290,9 @@ export class DeploymentTrackerService {
       });
 
       // EventBridge 규칙 정리
-      await this.deploymentEventBridge.cleanupDeploymentEventRules(deploymentId);
+      await this.deploymentEventBridge.cleanupDeploymentEventRules(
+        deploymentId,
+      );
 
       // 배포 완료 이벤트 발생
       this.eventEmitter.emit('deployment.completed', {
@@ -326,7 +319,9 @@ export class DeploymentTrackerService {
   /**
    * 배포 진행 상황 조회
    */
-  async getDeploymentProgress(deploymentId: string): Promise<Deployment | null> {
+  async getDeploymentProgress(
+    deploymentId: string,
+  ): Promise<Deployment | null> {
     return await this.deploymentRepository.findOne({
       where: { deploymentId },
       relations: ['pipeline', 'project'],
@@ -351,10 +346,10 @@ export class DeploymentTrackerService {
   /**
    * 진행 상황을 WebSocket으로 브로드캐스트
    */
-  private async broadcastProgress(
+  private broadcastProgress(
     deploymentId: string,
     progress: Omit<DeploymentProgress, 'deploymentId' | 'timestamp'>,
-  ): Promise<void> {
+  ): void {
     const fullProgress: DeploymentProgress = {
       deploymentId,
       timestamp: new Date(),
@@ -367,14 +362,12 @@ export class DeploymentTrackerService {
       .emit('deployment:progress', fullProgress);
 
     // 글로벌 배포 상태 채널에도 전송 (대시보드용)
-    this.logsGateway.server
-      .to('deployments:global')
-      .emit('deployment:status', {
-        deploymentId,
-        status: progress.status,
-        step: progress.step,
-        timestamp: fullProgress.timestamp,
-      });
+    this.logsGateway.server.to('deployments:global').emit('deployment:status', {
+      deploymentId,
+      status: progress.status,
+      step: progress.step,
+      timestamp: fullProgress.timestamp,
+    });
 
     this.logger.debug(
       `📡 Broadcasted deployment progress: ${deploymentId} - ${progress.status}`,

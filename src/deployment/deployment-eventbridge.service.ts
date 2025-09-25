@@ -21,7 +21,10 @@ export class DeploymentEventBridgeService {
   private readonly region: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.region = this.configService.get<string>('AWS_REGION', 'ap-northeast-2');
+    this.region = this.configService.get<string>(
+      'AWS_REGION',
+      'ap-northeast-2',
+    );
     const credentials = {
       accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
       secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY')!,
@@ -46,7 +49,10 @@ export class DeploymentEventBridgeService {
     clusterName: string;
     deploymentId: string;
   }): Promise<string> {
-    const environment = this.configService.get<string>('NODE_ENV', 'development');
+    const environment = this.configService.get<string>(
+      'NODE_ENV',
+      'development',
+    );
     const ruleName = `otto-deploy-${environment}-${config.deploymentId}`;
 
     try {
@@ -91,7 +97,7 @@ export class DeploymentEventBridgeService {
 
       // 2. Lambda 함수를 타겟으로 추가
       const lambdaArn = this.configService.get<string>('OTTO_LAMBDA_ARN');
-      
+
       if (!lambdaArn) {
         this.logger.warn(
           'OTTO_LAMBDA_ARN not configured, skipping Lambda target for deployment events',
@@ -139,13 +145,14 @@ export class DeploymentEventBridgeService {
     targetGroupArn: string;
     deploymentId: string;
   }): Promise<string> {
-    const environment = this.configService.get<string>('NODE_ENV', 'development');
+    const environment = this.configService.get<string>(
+      'NODE_ENV',
+      'development',
+    );
     const ruleName = `otto-health-${environment}-${config.deploymentId}`;
 
     try {
-      this.logger.log(
-        `Creating target health EventBridge rule: ${ruleName}`,
-      );
+      this.logger.log(`Creating target health EventBridge rule: ${ruleName}`);
 
       // ALB Target Health 상태 변경 이벤트를 감지하는 EventBridge Rule 생성
       await this.client.send(
@@ -167,7 +174,7 @@ export class DeploymentEventBridgeService {
 
       // Lambda 함수를 타겟으로 추가
       const lambdaArn = this.configService.get<string>('OTTO_LAMBDA_ARN');
-      
+
       if (lambdaArn) {
         await this.client.send(
           new PutTargetsCommand({
@@ -204,7 +211,10 @@ export class DeploymentEventBridgeService {
    * 배포 완료 후 EventBridge Rule 정리
    */
   async cleanupDeploymentEventRules(deploymentId: string): Promise<void> {
-    const environment = this.configService.get<string>('NODE_ENV', 'development');
+    const environment = this.configService.get<string>(
+      'NODE_ENV',
+      'development',
+    );
     const deployRuleName = `otto-deploy-${environment}-${deploymentId}`;
     const healthRuleName = `otto-health-${environment}-${deploymentId}`;
 
@@ -257,7 +267,7 @@ export class DeploymentEventBridgeService {
           SourceArn: `arn:aws:events:${this.region}:${lambdaArn.split(':')[4]}:rule/${ruleName}`,
         }),
       );
-      
+
       this.logger.log(`Lambda permission added for rule: ${ruleName}`);
     } catch (permissionError: unknown) {
       const errorObj = permissionError as { name?: string; message?: string };

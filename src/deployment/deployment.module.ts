@@ -13,12 +13,12 @@ import { LogsModule } from '../logs/logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Pipeline, Deployment]), 
+    TypeOrmModule.forFeature([Pipeline, Deployment]),
     AwsModule,
     LogsModule, // WebSocket 브로드캐스팅용
   ],
   providers: [
-    DeploymentService, 
+    DeploymentService,
     HealthCheckService,
     DeploymentTrackerService,
     DeploymentEventBridgeService,
@@ -26,7 +26,7 @@ import { LogsModule } from '../logs/logs.module';
     PipelineCleanupService,
   ],
   exports: [
-    DeploymentService, 
+    DeploymentService,
     HealthCheckService,
     DeploymentTrackerService,
     DeploymentEventsService, // 다른 모듈에서 이벤트 처리용

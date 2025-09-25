@@ -11,15 +11,10 @@ import { HealthCheckService } from './health-check.service';
 import { ConfigService } from '@nestjs/config';
 import { DeploymentTrackerService } from './deployment-tracker.service';
 import {
-  Deployment,
   DeploymentStatus,
   DeploymentType,
 } from '../database/entities/deployment.entity';
-import {
-  EC2Client,
-  DescribeSubnetsCommand,
-  DescribeSecurityGroupsCommand,
-} from '@aws-sdk/client-ec2';
+import { EC2Client } from '@aws-sdk/client-ec2';
 import {
   CloudWatchLogsClient,
   CreateLogGroupCommand,

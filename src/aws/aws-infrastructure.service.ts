@@ -7,15 +7,12 @@ import {
   DescribeSecurityGroupsCommand,
   CreateSecurityGroupCommand,
   AuthorizeSecurityGroupIngressCommand,
-  Vpc,
   Subnet,
-  SecurityGroup,
 } from '@aws-sdk/client-ec2';
 import {
   ECSClient,
   DescribeClustersCommand,
   CreateClusterCommand,
-  Cluster,
 } from '@aws-sdk/client-ecs';
 import {
   Route53Client,

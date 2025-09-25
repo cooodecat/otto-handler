@@ -9,7 +9,19 @@ import { AwsInfrastructureService } from './aws-infrastructure.service';
  * AWS 관련 서비스들을 관리하는 모듈
  */
 @Module({
-  providers: [AwsEcsService, AwsEcrService, AwsRoute53Service, AwsAlbService, AwsInfrastructureService],
-  exports: [AwsEcsService, AwsEcrService, AwsRoute53Service, AwsAlbService, AwsInfrastructureService],
+  providers: [
+    AwsEcsService,
+    AwsEcrService,
+    AwsRoute53Service,
+    AwsAlbService,
+    AwsInfrastructureService,
+  ],
+  exports: [
+    AwsEcsService,
+    AwsEcrService,
+    AwsRoute53Service,
+    AwsAlbService,
+    AwsInfrastructureService,
+  ],
 })
 export class AwsModule {}

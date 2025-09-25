@@ -120,7 +120,10 @@ export class DeploymentEventsService {
       // ECS 서비스 이벤트 타입별 처리
       switch (serviceDetail.eventType) {
         case 'SERVICE_TASK_DEFINITION_UPDATED':
-          await this.handleServiceTaskDefinitionUpdated(deployment, serviceDetail);
+          await this.handleServiceTaskDefinitionUpdated(
+            deployment,
+            serviceDetail,
+          );
           break;
 
         case 'SERVICE_STEADY_STATE':
@@ -129,7 +132,7 @@ export class DeploymentEventsService {
 
         default:
           this.logger.debug(
-            `Unknown ECS service event type: ${serviceDetail.eventType}`,
+            `Unknown ECS service event type: ${serviceDetail.eventType ?? 'undefined'}`,
           );
       }
     } catch (error) {
@@ -153,8 +156,10 @@ export class DeploymentEventsService {
 
     try {
       // 태스크 그룹에서 서비스명 추출 (e.g., "service:otto-service-xxx")
-      const serviceName = this.extractServiceNameFromTaskGroup(taskDetail.group);
-      
+      const serviceName = this.extractServiceNameFromTaskGroup(
+        taskDetail.group,
+      );
+
       if (!serviceName) {
         this.logger.warn(
           `Cannot extract service name from task group: ${taskDetail.group}`,
@@ -238,7 +243,9 @@ export class DeploymentEventsService {
           break;
 
         default:
-          this.logger.debug(`Unknown target health state: ${detail.state}`);
+          this.logger.debug(
+            `Unknown target health state: ${detail.state ?? 'undefined'}`,
+          );
       }
     } catch (error) {
       this.logger.error(
@@ -308,7 +315,7 @@ export class DeploymentEventsService {
     taskDetail: EcsTaskDetail,
   ): Promise<void> {
     const taskStatus = `${taskDetail.lastStatus}/${taskDetail.desiredStatus}`;
-    
+
     this.logger.log(
       `📋 Task status update: ${taskDetail.taskArn} - ${taskStatus}`,
     );
@@ -322,13 +329,15 @@ export class DeploymentEventsService {
           metadata: {
             ...deployment.metadata,
             runningTasks: [
-              ...(deployment.metadata?.runningTasks || []),
+              ...(Array.isArray(deployment.metadata?.runningTasks)
+                ? deployment.metadata.runningTasks
+                : []),
               {
                 taskArn: taskDetail.taskArn,
                 startedAt: taskDetail.startedAt,
                 connectivity: taskDetail.connectivity,
               },
-            ],
+            ].filter(Boolean),
           },
         },
       );
@@ -347,14 +356,16 @@ export class DeploymentEventsService {
           metadata: {
             ...deployment.metadata,
             stoppedTasks: [
-              ...(deployment.metadata?.stoppedTasks || []),
+              ...(Array.isArray(deployment.metadata?.stoppedTasks)
+                ? deployment.metadata.stoppedTasks
+                : []),
               {
                 taskArn: taskDetail.taskArn,
                 exitCode: taskDetail.exitCode,
                 stoppedReason: taskDetail.stoppedReason,
                 stoppedAt: taskDetail.stoppedAt,
               },
-            ],
+            ].filter(Boolean),
           },
         },
       );
@@ -392,13 +403,15 @@ export class DeploymentEventsService {
           metadata: {
             ...deployment.metadata,
             healthyTargets: [
-              ...(deployment.metadata?.healthyTargets || []),
+              ...(Array.isArray(deployment.metadata?.healthyTargets)
+                ? deployment.metadata.healthyTargets
+                : []),
               {
                 id: targetDetail.target.id,
                 port: targetDetail.target.port,
                 healthyAt: targetDetail.timestamp,
               },
-            ],
+            ].filter(Boolean),
           },
         },
       );
@@ -423,7 +436,9 @@ export class DeploymentEventsService {
         metadata: {
           ...deployment.metadata,
           unhealthyTargets: [
-            ...(deployment.metadata?.unhealthyTargets || []),
+            ...(Array.isArray(deployment.metadata?.unhealthyTargets)
+              ? deployment.metadata.unhealthyTargets
+              : []),
             {
               id: targetDetail.target.id,
               port: targetDetail.target.port,
@@ -447,7 +462,7 @@ export class DeploymentEventsService {
   ): Promise<Deployment | null> {
     // 서비스명에서 deploymentId 또는 pipelineId 추출 시도
     // 예: "service-{pipelineId}" 또는 "otto-service-{deploymentId}"
-    
+
     let deployment: Deployment | null = null;
 
     // 패턴 1: service-{pipelineId}

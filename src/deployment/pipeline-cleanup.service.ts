@@ -54,7 +54,7 @@ export class PipelineCleanupService {
       );
 
       // 3. ECS 서비스 정리
-      await this.cleanupEcsService(pipelineId, activeDeployments);
+      await this.cleanupEcsService(pipelineId);
 
       // 4. ALB 규칙 정리
       await this.cleanupAlbRules(pipelineId, activeDeployments);
@@ -84,10 +84,7 @@ export class PipelineCleanupService {
   /**
    * ECS 서비스 정리
    */
-  private async cleanupEcsService(
-    pipelineId: string,
-    deployments: Deployment[],
-  ): Promise<void> {
+  private async cleanupEcsService(pipelineId: string): Promise<void> {
     try {
       const serviceName = `otto-${pipelineId}`;
       this.logger.log(`🔄 Cleaning up ECS service: ${serviceName}`);
