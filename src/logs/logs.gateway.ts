@@ -19,6 +19,7 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
       process.env.NODE_ENV === 'production'
         ? (() => {
             const list: string[] = [];
+            // Add CORS_ORIGIN environment variable origins
             if (process.env.CORS_ORIGIN) {
               list.push(
                 ...process.env.CORS_ORIGIN.split(',')
@@ -26,18 +27,32 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
                   .filter(Boolean),
               );
             }
+            // Add FRONTEND_URL if different
             if (process.env.FRONTEND_URL) {
               list.push(process.env.FRONTEND_URL);
+              // Also add www variant if not present
+              if (
+                process.env.FRONTEND_URL.includes('://') &&
+                !process.env.FRONTEND_URL.includes('www.')
+              ) {
+                const wwwUrl = process.env.FRONTEND_URL.replace(
+                  '://',
+                  '://www.',
+                );
+                list.push(wwwUrl);
+              }
             }
-            // Fallback to previously hardcoded domains if nothing provided
+            // Fallback to known production domains
             if (list.length === 0) {
               list.push(
                 'https://codecat-otto.shop',
                 'https://www.codecat-otto.shop',
               );
             }
-            // De-duplicate
-            return Array.from(new Set(list));
+            // De-duplicate and log for debugging
+            const uniqueOrigins = Array.from(new Set(list));
+            console.log('WebSocket CORS origins:', uniqueOrigins);
+            return uniqueOrigins;
           })()
         : [
             process.env.FRONTEND_URL || 'http://localhost:5173',
@@ -46,11 +61,15 @@ import { LogBufferService } from './services/log-buffer/log-buffer.service';
             'http://localhost:5175',
           ],
     credentials: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['content-type', 'authorization'],
   },
   namespace: '/logs',
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,
+  // Allow EIO3 for better compatibility
+  allowEIO3: true,
 })
 export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -65,6 +84,12 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   handleConnection(client: Socket): void {
+    // Log connection attempt with details
+    const origin = client.handshake.headers.origin;
+    this.logger.log(
+      `WebSocket connection attempt from: ${origin || 'unknown origin'}`,
+    );
+
     // JWT 토큰 검증 (개발 환경에서는 선택적)
     const token = client.handshake.auth.token as string;
 
@@ -78,22 +103,31 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const user = this.validateToken(token);
       if (!user) {
-        this.logger.warn(`Invalid token for client ${client.id}`);
+        this.logger.warn(
+          `Invalid token for client ${client.id} from ${origin}`,
+        );
         // 개발 환경에서는 토큰 검증 실패해도 연결 허용
         if (process.env.NODE_ENV === 'development') {
           (client.data as Record<string, unknown>).userId = 'dev-user-no-auth';
           this.logger.log(`Client connected (dev mode, no auth): ${client.id}`);
           return;
         }
+        // Send error message before disconnecting
+        client.emit('error', {
+          message: 'Authentication failed: Invalid token',
+          code: 'AUTH_FAILED',
+        });
         client.disconnect();
         return;
       }
 
       (client.data as Record<string, unknown>).userId = user.userId;
-      this.logger.log(`Client connected: ${client.id}, User: ${user.userId}`);
+      this.logger.log(
+        `Client connected: ${client.id}, User: ${user.userId}, Origin: ${origin}`,
+      );
     } catch (error) {
       this.logger.error(
-        `Authentication failed for client ${client.id}:`,
+        `Authentication failed for client ${client.id} from ${origin}:`,
         error as Error,
       );
       // 개발 환경에서는 에러가 있어도 연결 허용
@@ -104,6 +138,12 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         );
         return;
       }
+      // Send error message before disconnecting
+      client.emit('error', {
+        message: 'Authentication error',
+        code: 'AUTH_ERROR',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
       client.disconnect();
     }
   }
