@@ -8,3 +8,4 @@ export * as installations from "./installations/index";
 export * as projects from "./projects/index";
 export * as repositories from "./repositories/index";
 export * as installation_url from "./installation_url/index";
+export * as debug from "./debug/index";

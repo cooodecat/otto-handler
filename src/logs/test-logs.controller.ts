@@ -1,8 +1,10 @@
-import { Controller, Post, Param, Body, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Post, Param, Body, Get, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { LogsGateway } from './logs.gateway';
 import { LogBufferService } from './services/log-buffer/log-buffer.service';
 import { LogsService } from './logs.service';
+import { LogStorageService } from './services/log-storage/log-storage.service';
+import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
 import {
   ExecutionType,
   ExecutionStatus,
@@ -24,10 +26,14 @@ interface TestLogDto {
 @ApiTags('test-logs')
 @Controller('test-logs')
 export class TestLogsController {
+  private readonly logger = new Logger(TestLogsController.name);
+
   constructor(
     private readonly logsGateway: LogsGateway,
     private readonly logBuffer: LogBufferService,
     private readonly logsService: LogsService,
+    private readonly logStorage: LogStorageService,
+    private readonly cloudwatchService: CloudwatchService,
   ) {}
 
   @Post('executions/:id/log')
@@ -166,5 +172,175 @@ export class TestLogsController {
       awsData,
       note: 'CloudWatch logs will be fetched automatically if AWS credentials are configured',
     };
+  }
+
+  @Post('check-stale')
+  @ApiOperation({ summary: 'Manually check and update stale executions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the number of checked and updated executions',
+  })
+  async checkStaleExecutions(): Promise<{
+    checked: number;
+    updated: number;
+    message: string;
+  }> {
+    const result = await this.logsService.checkStaleExecutionsManually();
+
+    return {
+      ...result,
+      message: `Checked ${result.checked} executions, updated ${result.updated} to their actual status`,
+    };
+  }
+
+  @Post('recover-logs/:executionId')
+  @ApiOperation({ summary: 'Manually recover logs for a specific execution' })
+  @ApiParam({ name: 'executionId', description: 'Execution ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the number of recovered logs',
+  })
+  async recoverLogs(@Param('executionId') executionId: string): Promise<{
+    success: boolean;
+    logsRecovered: number;
+    message: string;
+  }> {
+    try {
+      // Get execution details
+      const execution = await this.logsService.getExecutionById(
+        executionId,
+        undefined,
+      );
+
+      if (!execution) {
+        return {
+          success: false,
+          logsRecovered: 0,
+          message: 'Execution not found',
+        };
+      }
+
+      // Check current log count
+      const currentLogCount =
+        await this.logStorage.getExecutionLogCount(executionId);
+
+      if (currentLogCount > 0) {
+        return {
+          success: true,
+          logsRecovered: currentLogCount,
+          message: `Execution already has ${currentLogCount} logs`,
+        };
+      }
+
+      // Try to recover from CloudWatch
+      let recoveredCount = 0;
+
+      if (execution.awsBuildId && execution.logStreamName) {
+        // Get CloudWatch log group from project entity or determine from awsBuildId
+        let logGroupName: string;
+        let logStreamName: string = execution.logStreamName;
+
+        // First, try to use the cloudwatchLogGroup from the project entity
+        if (execution.project && execution.project.cloudwatchLogGroup) {
+          logGroupName = execution.project.cloudwatchLogGroup;
+        } else {
+          // CloudWatch log group pattern:
+          // Development: /aws/codebuild/otto/development/{userId}/{projectId}
+          // Production: /aws/codebuild/otto/production/{userId}/{projectId}
+
+          const nodeEnv = process.env.NODE_ENV || 'development';
+          const environment =
+            nodeEnv === 'production' ? 'production' : 'development';
+
+          // Extract projectId and userId from execution
+          let projectId = execution.projectId;
+          const userId = execution.userId;
+
+          if (!projectId && execution.awsBuildId) {
+            // Try to extract from awsBuildId pattern: otto-{env}-{projectId}-build:{executionId}
+            const match = execution.awsBuildId.match(
+              /otto-\w+-([a-f0-9-]+)-build/,
+            );
+            if (match) {
+              projectId = match[1];
+            }
+          }
+
+          // Build the log group name
+          // Pattern: /aws/codebuild/otto/{environment}/{userId}/{projectId}
+          if (userId && projectId) {
+            logGroupName = `/aws/codebuild/otto/${environment}/${userId}/${projectId}`;
+            logStreamName = executionId;
+          } else if (projectId) {
+            // Fallback without userId (old pattern)
+            logGroupName = `/aws/codebuild/otto/${environment}/${projectId}`;
+            logStreamName = executionId;
+          } else {
+            // Ultimate fallback
+            logGroupName = `/aws/codebuild/otto/${environment}`;
+          }
+        }
+
+        this.logger.log(
+          `Attempting to recover logs from CloudWatch:
+          - Environment: ${process.env.NODE_ENV || 'development'}
+          - Execution: ${executionId}
+          - Project ID: ${execution.projectId}
+          - AWS Build ID: ${execution.awsBuildId}
+          - Log Group: ${logGroupName}
+          - Log Stream: ${logStreamName}
+          - Project CloudWatch Group: ${execution.project?.cloudwatchLogGroup || 'not set'}`,
+        );
+
+        try {
+          recoveredCount = await this.cloudwatchService.fetchAndSaveAllLogs(
+            executionId,
+            logGroupName,
+            logStreamName,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to recover logs for ${executionId}: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
+          );
+          // Log full error for debugging
+          if (error instanceof Error) {
+            this.logger.error(`Full error: ${error.stack}`);
+          }
+        }
+      }
+
+      if (recoveredCount > 0) {
+        // Update execution metadata to indicate logs were recovered
+        await this.logsService.updateExecutionStatus(
+          executionId,
+          execution.status,
+          {
+            logsRecovered: true,
+            logsRecoveredCount: recoveredCount,
+            recoveredAt: new Date().toISOString(),
+          },
+        );
+      }
+
+      return {
+        success: recoveredCount > 0,
+        logsRecovered: recoveredCount,
+        message:
+          recoveredCount > 0
+            ? `Successfully recovered ${recoveredCount} logs`
+            : 'No logs could be recovered',
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error recovering logs: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
+      return {
+        success: false,
+        logsRecovered: 0,
+        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      };
+    }
   }
 }

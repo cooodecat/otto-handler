@@ -6,3 +6,5 @@
 //================================================================
 export * as executions from "./executions/index";
 export * as aws_codebuild from "./aws_codebuild/index";
+export * as check_stale from "./check_stale/index";
+export * as recover_logs from "./recover_logs/index";

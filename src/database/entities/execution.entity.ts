@@ -85,6 +85,13 @@ export class Execution {
   @Column({ nullable: true })
   completedAt?: Date;
 
+  @Column({
+    nullable: true,
+    type: 'integer',
+    comment: 'Execution duration in seconds',
+  })
+  duration?: number;
+
   @UpdateDateColumn()
   updatedAt: Date;
 

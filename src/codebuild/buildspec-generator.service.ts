@@ -1,15 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { generateDockerfileScript } from './dockerfile-generator';
-
-// Flow 노드 타입 인터페이스들 (frontend에서 가져온 타입)
-interface AnyCICDNodeData {
-  blockType: string;
-  groupType: string;
-  blockId: string;
-  onSuccess: string | null;
-  onFailed: string | null;
-  [key: string]: any;
-}
+import { CICDNodeData } from '../database/entities/pipeline.entity';
 
 // BuildSpec 구조 인터페이스
 interface BuildSpecPhase {
@@ -33,7 +24,7 @@ export class BuildSpecGeneratorService {
   /**
    * Flow 노드들을 buildspec.yml 문자열로 변환
    */
-  generateBuildSpec(flowNodes: AnyCICDNodeData[]): string {
+  generateBuildSpec(flowNodes: CICDNodeData[]): string {
     // 디버깅: Flow 노드 정보 출력
     console.log('=== Flow Nodes Received ===');
     console.log(JSON.stringify(flowNodes, null, 2));
@@ -202,9 +193,9 @@ export class BuildSpecGeneratorService {
    * Flow 노드들을 그룹별로 분류
    */
   private groupNodesByType(
-    flowNodes: AnyCICDNodeData[],
-  ): Record<string, AnyCICDNodeData[]> {
-    const grouped: Record<string, AnyCICDNodeData[]> = {};
+    flowNodes: CICDNodeData[],
+  ): Record<string, CICDNodeData[]> {
+    const grouped: Record<string, CICDNodeData[]> = {};
 
     for (const node of flowNodes) {
       const groupType = node.groupType;
@@ -220,7 +211,7 @@ export class BuildSpecGeneratorService {
   /**
    * PREBUILD 단계 명령어 생성
    */
-  private generatePreBuildCommands(node: AnyCICDNodeData): string[] {
+  private generatePreBuildCommands(node: CICDNodeData): string[] {
     switch (node.blockType) {
       case 'os_package':
         return this.generateOSPackageCommands(node);
@@ -236,7 +227,7 @@ export class BuildSpecGeneratorService {
   /**
    * BUILD 단계 명령어 생성
    */
-  private generateBuildCommands(node: AnyCICDNodeData): string[] {
+  private generateBuildCommands(node: CICDNodeData): string[] {
     switch (node.blockType) {
       case 'install_module_node':
         return this.generateInstallPackagesCommands(node);
@@ -254,7 +245,7 @@ export class BuildSpecGeneratorService {
   /**
    * TEST 단계 명령어 생성
    */
-  private generateTestCommands(node: AnyCICDNodeData): string[] {
+  private generateTestCommands(node: CICDNodeData): string[] {
     switch (node.blockType) {
       case 'test_jest':
         return this.generateJestTestCommands(node);
@@ -274,7 +265,7 @@ export class BuildSpecGeneratorService {
   /**
    * NOTIFICATION 단계 명령어 생성
    */
-  private generateNotificationCommands(node: AnyCICDNodeData): string[] {
+  private generateNotificationCommands(node: CICDNodeData): string[] {
     switch (node.blockType) {
       case 'notification_slack':
         return this.generateSlackNotificationCommands(node);
@@ -287,7 +278,7 @@ export class BuildSpecGeneratorService {
 
   // ========== 개별 노드 타입별 명령어 생성 메서드들 ==========
 
-  private generateOSPackageCommands(node: AnyCICDNodeData): string[] {
+  private generateOSPackageCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     const packageManager = (node.packageManager as string) || 'apt-get';
 
@@ -325,7 +316,7 @@ export class BuildSpecGeneratorService {
     return [];
   }
 
-  private generateEnvironmentSetupCommands(node: AnyCICDNodeData): string[] {
+  private generateEnvironmentSetupCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
 
     if (node.environmentVariables) {
@@ -347,7 +338,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateInstallPackagesCommands(node: AnyCICDNodeData): string[] {
+  private generateInstallPackagesCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     const packageManager = (node.packageManager as string) || 'npm';
 
@@ -385,7 +376,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateWebpackBuildCommands(node: AnyCICDNodeData): string[] {
+  private generateWebpackBuildCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     const packageManager = (node.packageManager as string) || 'npm';
 
@@ -416,7 +407,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateViteBuildCommands(node: AnyCICDNodeData): string[] {
+  private generateViteBuildCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     const packageManager = (node.packageManager as string) || 'npm';
 
@@ -447,7 +438,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateCustomBuildCommands(node: AnyCICDNodeData): string[] {
+  private generateCustomBuildCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     const packageManager = (node.packageManager as string) || 'npm';
 
@@ -468,7 +459,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateJestTestCommands(node: AnyCICDNodeData): string[] {
+  private generateJestTestCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     let jestCmd = 'npm run test';
 
@@ -484,7 +475,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateVitestTestCommands(node: AnyCICDNodeData): string[] {
+  private generateVitestTestCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     let vitestCmd = 'npx vitest run';
 
@@ -500,7 +491,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateMochaTestCommands(node: AnyCICDNodeData): string[] {
+  private generateMochaTestCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     let mochaCmd = 'npx mocha';
 
@@ -524,7 +515,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generatePlaywrightTestCommands(node: AnyCICDNodeData): string[] {
+  private generatePlaywrightTestCommands(node: CICDNodeData): string[] {
     const commands: string[] = [];
     let playwrightCmd = 'npx playwright test';
 
@@ -540,7 +531,7 @@ export class BuildSpecGeneratorService {
     return commands;
   }
 
-  private generateCustomTestCommands(node: AnyCICDNodeData): string[] {
+  private generateCustomTestCommands(node: CICDNodeData): string[] {
     if (node.testCommands && Array.isArray(node.testCommands)) {
       if (node.workingDirectory && node.workingDirectory !== '.') {
         return (node.testCommands as string[]).map(
@@ -552,7 +543,7 @@ export class BuildSpecGeneratorService {
     return [];
   }
 
-  private generateSlackNotificationCommands(node: AnyCICDNodeData): string[] {
+  private generateSlackNotificationCommands(node: CICDNodeData): string[] {
     if (!node.channel || !node.webhookUrlEnv) {
       return [];
     }
@@ -564,7 +555,7 @@ export class BuildSpecGeneratorService {
     ];
   }
 
-  private generateEmailNotificationCommands(node: AnyCICDNodeData): string[] {
+  private generateEmailNotificationCommands(node: CICDNodeData): string[] {
     if (!node.recipients || !node.subject) {
       return [];
     }
@@ -580,7 +571,7 @@ export class BuildSpecGeneratorService {
    * Dockerfile 생성 명령어 생성
    * 프로젝트에 Dockerfile이 없는 경우 기본 Dockerfile을 생성
    */
-  private generateDockerfileCommands(flowNodes: AnyCICDNodeData[]): string[] {
+  private generateDockerfileCommands(flowNodes: CICDNodeData[]): string[] {
     // Flow 노드에서 Node.js 버전 찾기 (기본값: 20)
     const nodeVersionNode = flowNodes?.find(
       (node) => node?.blockType === 'node_version',
@@ -619,7 +610,7 @@ export class BuildSpecGeneratorService {
    * Docker 빌드 명령어 생성 (Dockerfile 내부용)
    */
   private getDockerBuildCommand(
-    buildNode: AnyCICDNodeData,
+    buildNode: CICDNodeData,
     packageManager: string,
   ): string {
     switch (buildNode.blockType) {

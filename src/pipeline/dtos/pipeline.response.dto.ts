@@ -1,3 +1,5 @@
+import { PipelineData } from '../../database/entities/pipeline.entity';
+
 export interface PipelineResponseDto {
   /**
    * 파이프라인 ID
@@ -22,7 +24,7 @@ export interface PipelineResponseDto {
   /**
    * 파이프라인 데이터 (JSON)
    */
-  data: any;
+  data: PipelineData;
 
   /**
    * ECR 이미지 URI (빌드된 이미지 전체 URI)

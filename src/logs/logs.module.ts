@@ -18,6 +18,7 @@ import { JwtService } from '../auth/jwt.service';
 import { TestLogsController } from './test-logs.controller';
 import { RedisModule } from '../common/redis/redis.module';
 import { PipelineModule } from '../pipeline/pipeline.module';
+import { CodeBuildModule } from '../codebuild/codebuild.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { PipelineModule } from '../pipeline/pipeline.module';
     ]),
     RedisModule,
     forwardRef(() => PipelineModule),
+    forwardRef(() => CodeBuildModule),
   ],
   controllers: [LogsController, TestLogsController, EventBridgeController],
   providers: [
