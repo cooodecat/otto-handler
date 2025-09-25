@@ -4,6 +4,9 @@ import { Repository } from 'typeorm';
 import { Project, ProjectStatus } from '../database/entities/project.entity';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { CodeBuildService } from '../codebuild/codebuild.service';
+import { ECRService } from '../codebuild/ecr.service';
+import { EventBridgeService } from '../codebuild/eventbridge.service';
+import { CloudWatchLogsService } from '../codebuild/cloudwatch-logs.service';
 import type {
   CreateProjectRequestDto,
   UpdateProjectRequestDto,
@@ -20,6 +23,9 @@ export class ProjectService {
     @InjectRepository(Pipeline)
     private readonly pipelineRepository: Repository<Pipeline>,
     private readonly codeBuildService: CodeBuildService,
+    private readonly ecrService: ECRService,
+    private readonly eventBridgeService: EventBridgeService,
+    private readonly cloudWatchLogsService: CloudWatchLogsService,
   ) {}
 
   async createProject(
@@ -133,8 +139,8 @@ export class ProjectService {
         `Rolling back ECR repository: ${resources.ecrRepository}`,
       );
       rollbackPromises.push(
-        this.codeBuildService
-          .deleteEcrRepository(resources.ecrRepository)
+        this.ecrService
+          .deleteRepository(resources.ecrRepository)
           .catch((err: Error) =>
             this.logger.error(
               `Failed to delete ECR repository: ${err.message}`,
@@ -236,7 +242,23 @@ export class ProjectService {
       throw new NotFoundException('Project not found');
     }
 
-    // 관련된 모든 파이프라인 삭제
+    this.logger.log(`Starting deletion of project ${projectId}`);
+
+    // 프로젝트 AWS 리소스 정리
+    try {
+      await this.cleanupProjectAwsResources(project);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `Failed to cleanup AWS resources for project ${projectId}: ${errorMessage}`,
+        errorStack,
+      );
+      // AWS 리소스 정리 실패해도 DB 삭제는 계속 진행
+    }
+
+    // 관련된 모든 파이프라인 삭제 (DB만 - 파이프라인 AWS 리소스는 파이프라인 팀에서 처리)
     await this.pipelineRepository.delete({ projectId });
 
     // 프로젝트 삭제
@@ -247,6 +269,100 @@ export class ProjectService {
 
     if (result.affected === 0) {
       throw new NotFoundException('Project not found');
+    }
+
+    this.logger.log(`Successfully deleted project ${projectId}`);
+  }
+
+  /**
+   * 프로젝트 관련 AWS 리소스 정리
+   * @private
+   */
+  private async cleanupProjectAwsResources(project: Project): Promise<void> {
+    const errors: string[] = [];
+
+    // 1. CodeBuild 프로젝트 삭제
+    if (project.codebuildProjectName) {
+      this.logger.log(
+        `Deleting CodeBuild project: ${project.codebuildProjectName}`,
+      );
+      try {
+        await this.codeBuildService.deleteProject(project.codebuildProjectName);
+        this.logger.log(
+          `Successfully deleted CodeBuild project: ${project.codebuildProjectName}`,
+        );
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        const message = `Failed to delete CodeBuild project: ${errorMessage}`;
+        this.logger.error(message);
+        errors.push(message);
+      }
+    }
+
+    // 2. ECR Repository 삭제
+    if (project.ecrRepository) {
+      this.logger.log(`Deleting ECR repository: ${project.ecrRepository}`);
+      try {
+        await this.ecrService.deleteRepository(project.ecrRepository);
+        this.logger.log(
+          `Successfully deleted ECR repository: ${project.ecrRepository}`,
+        );
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        const message = `Failed to delete ECR repository: ${errorMessage}`;
+        this.logger.error(message);
+        errors.push(message);
+      }
+    }
+
+    // 3. EventBridge Rule 삭제
+    const ruleName = `otto-${process.env.NODE_ENV || 'development'}-${
+      project.projectId
+    }`;
+    this.logger.log(`Deleting EventBridge rule: ${ruleName}`);
+    try {
+      await this.eventBridgeService.deleteRuleByName(ruleName);
+      this.logger.log(`Successfully deleted EventBridge rule: ${ruleName}`);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const message = `Failed to delete EventBridge rule: ${errorMessage}`;
+      this.logger.error(message);
+      errors.push(message);
+    }
+
+    // 4. CloudWatch Log Group 삭제 (완전 삭제하여 비용 절감)
+    if (project.cloudwatchLogGroup) {
+      this.logger.log(
+        `Deleting CloudWatch log group: ${project.cloudwatchLogGroup}`,
+      );
+      try {
+        await this.cloudWatchLogsService.deleteLogGroup(
+          project.cloudwatchLogGroup,
+        );
+        this.logger.log(
+          `Successfully deleted CloudWatch log group: ${project.cloudwatchLogGroup}`,
+        );
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        const message = `Failed to delete CloudWatch log group: ${errorMessage}`;
+        this.logger.error(message);
+        // CloudWatch 로그 삭제 실패는 크리티컬하지 않으므로 errors에 추가하지 않음
+        this.logger.warn(
+          'CloudWatch log group deletion failed but continuing with cleanup',
+        );
+      }
+    }
+
+    if (errors.length > 0) {
+      this.logger.warn(
+        `Project AWS resource cleanup completed with ${errors.length} errors`,
+      );
+    } else {
+      this.logger.log(`Project AWS resource cleanup completed successfully`);
     }
   }
 }

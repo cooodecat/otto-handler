@@ -21,6 +21,7 @@ import { Execution } from '../database/entities/execution.entity';
     BuildSpecGeneratorService,
     ECRService,
     EventBridgeService,
+    CloudWatchLogsService,
   ],
 })
 export class CodeBuildModule {}
