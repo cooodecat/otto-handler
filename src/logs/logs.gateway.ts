@@ -473,7 +473,10 @@ export class LogsGateway
 
   // 로그 브로드캐스트
   broadcastLogs(executionId: string, logs: unknown[]): void {
-    this.server.to(`execution:${executionId}`).emit('logs:new', logs);
+    // Broadcast each log individually for real-time effect
+    logs.forEach((log) => {
+      this.server.to(`execution:${executionId}`).emit('logs:new', log);
+    });
     this.logger.log(
       `Broadcasted ${logs.length} logs to execution:${executionId}`,
     );
