@@ -18,6 +18,7 @@ import {
   DescribeTargetHealthCommand,
   ElasticLoadBalancingV2Client,
   ModifyLoadBalancerAttributesCommand,
+  ModifyRuleCommand,
   ModifyTargetGroupAttributesCommand,
   RedirectActionStatusCodeEnum,
   RegisterTargetsCommand,
@@ -824,6 +825,42 @@ export class AwsAlbService {
     } catch (error) {
       this.logger.error(`리스너 규칙 삭제 실패: ${error}`);
       throw new Error(`리스너 규칙 삭제 실패: ${error}`);
+    }
+  }
+
+  /**
+   * 리스너 규칙 수정
+   * 기존 규칙의 액션과 조건을 업데이트합니다
+   */
+  async modifyRule(input: {
+    ruleArn: string;
+    actions: Array<{
+      type: string;
+      targetGroupArn: string;
+    }>;
+    conditions?: Array<{
+      field: string;
+      values: string[];
+    }>;
+  }): Promise<void> {
+    try {
+      const command = new ModifyRuleCommand({
+        RuleArn: input.ruleArn,
+        Actions: input.actions.map((action) => ({
+          Type: ActionTypeEnum.FORWARD,
+          TargetGroupArn: action.targetGroupArn,
+        })),
+        Conditions: input.conditions?.map((condition) => ({
+          Field: condition.field,
+          Values: condition.values,
+        })),
+      });
+
+      await this.elbv2Client.send(command);
+      this.logger.log(`리스너 규칙 수정 완료: ${input.ruleArn}`);
+    } catch (error) {
+      this.logger.error(`리스너 규칙 수정 실패: ${error}`);
+      throw new Error(`리스너 규칙 수정 실패: ${error}`);
     }
   }
 

@@ -48,6 +48,7 @@ import { PipelineModule } from '../pipeline/pipeline.module';
     LogStorageService,
     LogsService,
     EventBridgeService,
+    LogsGateway,
   ],
 })
 export class LogsModule {}
