@@ -1,4 +1,4 @@
-import { Controller, HttpCode, HttpStatus, Req } from '@nestjs/common';
+import { Controller, HttpCode, HttpStatus, Logger, Req } from '@nestjs/common';
 import { GithubAppService } from './github-app.service';
 import { TypedParam, TypedException, TypedRoute } from '@nestia/core';
 import { CommonErrorResponseDto } from '../common/dtos';
@@ -10,10 +10,22 @@ import type {
   GithubInstallationUrlResponseDto,
 } from './dtos';
 import type { IRequestType } from '../common/type';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { GithubApp } from '../database/entities/github-app.entity';
+import { User } from '../database/entities/user.entity';
 
 @Controller('/github-app')
 export class GithubAppController {
-  constructor(private readonly githubAppService: GithubAppService) {}
+  private readonly logger = new Logger(GithubAppController.name);
+
+  constructor(
+    private readonly githubAppService: GithubAppService,
+    @InjectRepository(GithubApp)
+    private readonly githubAppRepository: Repository<GithubApp>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
   /**
    * @tag github-app
@@ -135,5 +147,56 @@ export class GithubAppController {
   @AuthGuard()
   getInstallationUrl(): GithubInstallationUrlResponseDto {
     return this.githubAppService.getInstallationUrl();
+  }
+
+  /**
+   * @tag github-app
+   * @summary [디버그] GitHub App 설치 상태 확인
+   * @description 현재 DB에 저장된 모든 GitHub App 설치 정보와 사용자 정보를 조회합니다
+   */
+  @HttpCode(200)
+  @TypedRoute.Get('/debug/installations')
+  async debugInstallations(): Promise<{
+    installations: any[];
+    users: any[];
+    totalInstallations: number;
+    totalUsers: number;
+  }> {
+    this.logger.log('[Debug] Fetching all GitHub App installations');
+
+    const installations = await this.githubAppRepository.find({
+      relations: ['user'],
+    });
+
+    const users = await this.userRepository.find({
+      select: ['userId', 'githubId', 'githubUserName', 'email'],
+    });
+
+    const result = {
+      installations: installations.map((inst) => ({
+        installationId: inst.installationId,
+        accountLogin: inst.accountLogin,
+        accountType: inst.accountType,
+        userId: inst.userId,
+        userName: inst.user?.githubUserName,
+        userGithubId: inst.user?.githubId,
+        createdAt: inst.createdAt,
+        updatedAt: inst.updatedAt,
+      })),
+      users: users.map((user) => ({
+        userId: user.userId,
+        githubId: user.githubId,
+        githubUserName: user.githubUserName,
+        email: user.email,
+      })),
+      totalInstallations: installations.length,
+      totalUsers: users.length,
+    };
+
+    this.logger.log(
+      `[Debug] Found ${installations.length} installations and ${users.length} users`,
+    );
+
+    return result;
   }
 }

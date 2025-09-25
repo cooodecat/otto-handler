@@ -216,7 +216,8 @@ export class GithubWebhookService {
     );
 
     // GitHub App 레코드가 없으면 생성 (기존 설치에 리포지토리 추가하는 경우)
-    await this.ensureGithubAppRecord(installation);
+    // sender 정보도 함께 전달
+    await this.ensureGithubAppRecord(installation, payload.sender);
 
     if (action === 'added' && payload.repositories_added) {
       this.logger.log(
@@ -234,6 +235,7 @@ export class GithubWebhookService {
    */
   private async ensureGithubAppRecord(
     installation: GitHubWebhookPayload['installation'],
+    sender?: GitHubWebhookPayload['sender'],
   ): Promise<void> {
     if (!installation) {
       this.logger.warn('No installation data provided');
@@ -261,17 +263,39 @@ export class GithubWebhookService {
       `📝 No existing GitHub App record found, creating new one for installation ${installationId}`,
     );
 
-    // GitHub 사용자 ID로 Otto 사용자 찾기
-    this.logger.log(
-      `🔍 Looking for Otto user with githubId: ${installation.account.id}`,
-    );
-    const user = await this.userRepository.findOne({
-      where: { githubId: installation.account.id },
-    });
+    let user: User | null = null;
+
+    // Organization vs Personal account 구분 처리
+    if (installation.account.type === 'Organization' && sender) {
+      // Organization: sender ID로 사용자 찾기
+      this.logger.log(
+        `🔍 Organization install - Looking for Otto user with sender githubId: ${sender.id} (${sender.login})`,
+      );
+      user = await this.userRepository.findOne({
+        where: { githubId: sender.id },
+      });
+
+      if (!user) {
+        // sender username으로 재시도
+        user = await this.userRepository.findOne({
+          where: { githubUserName: sender.login },
+        });
+      }
+    } else {
+      // Personal account: account ID로 사용자 찾기
+      this.logger.log(
+        `🔍 Personal install - Looking for Otto user with account githubId: ${installation.account.id} (${installation.account.login})`,
+      );
+      user = await this.userRepository.findOne({
+        where: { githubId: installation.account.id },
+      });
+    }
 
     if (!user) {
       this.logger.error(
-        `❌ No Otto user found for GitHub user ${installation.account.login} (${installation.account.id}). User needs to login to Otto first.`,
+        `❌ No Otto user found for GitHub ${installation.account.type} ${installation.account.login} (${installation.account.id}). ` +
+          `${installation.account.type === 'Organization' && sender ? `Sender: ${sender.login} (${sender.id}). ` : ''}` +
+          `User needs to login to Otto first.`,
       );
       return;
     }
@@ -350,40 +374,98 @@ export class GithubWebhookService {
       `[Installation] Processing created event for ${installation.account.login} (${installation.account.type})`,
     );
 
+    // 디버깅: 현재 DB의 모든 사용자 조회
+    const allUsers = await this.userRepository.find({
+      select: ['userId', 'githubId', 'githubUserName', 'email'],
+    });
+    this.logger.log(
+      `[Installation Debug] Total users in DB: ${allUsers.length}`,
+    );
+    allUsers.forEach((u) => {
+      this.logger.log(
+        `[Installation Debug] User in DB: githubId=${u.githubId}, githubUserName=${u.githubUserName}, userId=${u.userId}`,
+      );
+    });
+
     let user: User | null = null;
     const searchAttempts: string[] = [];
 
-    // 1. Organization 설치인 경우: sender ID로 먼저 시도
-    if (installation.account.type === 'Organization' && sender) {
-      searchAttempts.push(`sender.id=${sender.id}`);
-      this.logger.log(
-        `[Installation] Attempt 1: Searching by sender GitHub ID: ${sender.id} (${sender.login})`,
-      );
-      user = await this.userRepository.findOne({
-        where: { githubId: sender.id },
-      });
-    }
+    // Organization과 User 타입에 따라 다른 검색 전략 사용
+    if (installation.account.type === 'Organization') {
+      // Organization 설치: sender(설치한 사람)로 검색
+      if (sender) {
+        // 1. sender ID로 시도
+        searchAttempts.push(`sender.id=${sender.id}`);
+        this.logger.log(
+          `[Installation] Organization install - Searching by sender GitHub ID: ${sender.id} (${sender.login})`,
+        );
+        user = await this.userRepository.findOne({
+          where: { githubId: sender.id },
+        });
+        if (user) {
+          this.logger.log(
+            `[Installation] ✅ Found user by sender ID: ${user.githubUserName} (${user.userId})`,
+          );
+        } else {
+          this.logger.log(
+            `[Installation] ❌ No user found with githubId=${sender.id}`,
+          );
 
-    // 2. 못 찾았거나 개인 계정인 경우: account ID로 시도
-    if (!user) {
+          // 2. sender username으로 시도
+          searchAttempts.push(`sender.username=${sender.login}`);
+          this.logger.log(
+            `[Installation] Trying sender GitHub username: ${sender.login}`,
+          );
+          user = await this.userRepository.findOne({
+            where: { githubUserName: sender.login },
+          });
+          if (user) {
+            this.logger.log(
+              `[Installation] ✅ Found user by username: ${user.githubUserName} (${user.userId})`,
+            );
+          } else {
+            this.logger.log(
+              `[Installation] ❌ No user found with githubUserName=${sender.login}`,
+            );
+          }
+        }
+      }
+    } else {
+      // Personal account 설치: account ID로 검색
       searchAttempts.push(`account.id=${installation.account.id}`);
       this.logger.log(
-        `[Installation] Attempt 2: Searching by account GitHub ID: ${installation.account.id} (${installation.account.login})`,
+        `[Installation] Personal install - Searching by account GitHub ID: ${installation.account.id} (${installation.account.login})`,
       );
       user = await this.userRepository.findOne({
         where: { githubId: installation.account.id },
       });
-    }
+      if (user) {
+        this.logger.log(
+          `[Installation] ✅ Found user by account ID: ${user.githubUserName} (${user.userId})`,
+        );
+      } else {
+        this.logger.log(
+          `[Installation] ❌ No user found with githubId=${installation.account.id}`,
+        );
 
-    // 3. Organization이고 여전히 못 찾은 경우: GitHub username으로 최종 시도
-    if (!user && installation.account.type === 'Organization' && sender) {
-      searchAttempts.push(`sender.username=${sender.login}`);
-      this.logger.log(
-        `[Installation] Attempt 3: Searching by sender GitHub username: ${sender.login}`,
-      );
-      user = await this.userRepository.findOne({
-        where: { githubUserName: sender.login },
-      });
+        // 개인 계정인데도 못 찾은 경우 username으로 시도
+        searchAttempts.push(`account.username=${installation.account.login}`);
+        this.logger.log(
+          `[Installation] Trying account GitHub username: ${installation.account.login}`,
+        );
+        user = await this.userRepository.findOne({
+          where: { githubUserName: installation.account.login },
+        });
+        if (user) {
+          this.logger.log(
+            `[Installation] ✅ Found user by username: ${user.githubUserName} (${user.userId})`,
+          );
+        } else {
+          this.logger.log(
+            `[Installation] ❌ No user found with githubUserName=${installation.account.login}`,
+          );
+        }
+      }
     }
 
     if (!user) {
@@ -400,6 +482,28 @@ export class GithubWebhookService {
       `[Installation] ✅ Found Otto user: ${user.userId} (${user.githubUserName}) after ${searchAttempts.length} attempt(s)`,
     );
 
+    // 같은 계정의 이전 Installation 정리 (선택적)
+    // 새 Installation이 생성되면 같은 계정의 이전 것들은 사실상 무효화됨
+    const previousInstallations = await this.githubAppRepository.find({
+      where: {
+        accountLogin: installation.account.login,
+        accountType: installation.account.type,
+        userId: user.userId,
+      },
+    });
+
+    if (previousInstallations.length > 0) {
+      this.logger.log(
+        `[Installation] Found ${previousInstallations.length} previous installation(s) for ${installation.account.login}`,
+      );
+
+      // 이전 Installation들 삭제 (선택적 - 히스토리를 유지하려면 주석 처리)
+      // for (const prev of previousInstallations) {
+      //   await this.githubAppRepository.delete({ installationId: prev.installationId });
+      //   this.logger.log(`[Installation] Removed old installation ${prev.installationId}`);
+      // }
+    }
+
     // GithubApp 엔티티 생성 또는 업데이트
     const installationId = installation.id.toString();
     const existingGithubApp = await this.githubAppRepository.findOne({
@@ -408,7 +512,15 @@ export class GithubWebhookService {
 
     if (existingGithubApp) {
       this.logger.log(
-        `[Installation] GitHub App record already exists for installation ${installationId}`,
+        `[Installation] GitHub App record already exists for installation ${installationId}, updating it`,
+      );
+      // 기존 레코드가 있어도 업데이트 (사용자나 계정 정보가 변경될 수 있음)
+      existingGithubApp.userId = user.userId;
+      existingGithubApp.accountLogin = installation.account.login;
+      existingGithubApp.accountType = installation.account.type;
+      await this.githubAppRepository.save(existingGithubApp);
+      this.logger.log(
+        `[Installation] ✅ Updated existing GitHub App record for installation ${installationId}`,
       );
       return;
     }
@@ -421,15 +533,47 @@ export class GithubWebhookService {
         accountType: installation.account.type,
       });
 
+      this.logger.log(
+        `[Installation] 💾 Attempting to save new GitHub App record:`,
+        {
+          installationId,
+          userId: user.userId,
+          accountLogin: installation.account.login,
+          accountType: installation.account.type,
+        },
+      );
+
       await this.githubAppRepository.save(githubApp);
+
       this.logger.log(
         `[Installation] ✅ Successfully created GitHub App record for installation ${installationId} (${installation.account.login})`,
       );
+
+      // 저장 확인
+      const verifyGithubApp = await this.githubAppRepository.findOne({
+        where: { installationId },
+        relations: ['user'],
+      });
+
+      if (verifyGithubApp) {
+        this.logger.log(
+          `[Installation] ✅ Verified: GitHub App record exists in DB with installationId=${verifyGithubApp.installationId}, userId=${verifyGithubApp.userId}`,
+        );
+      } else {
+        this.logger.error(
+          `[Installation] ❌ Verification failed: Could not find the saved GitHub App record`,
+        );
+      }
     } catch (error) {
       this.logger.error(
         `[Installation] ❌ Failed to save GitHub App record for installation ${installationId}:`,
         error,
       );
+      // error 스택 트레이스도 로그에 포함
+      if (error instanceof Error) {
+        this.logger.error(`[Installation] Error details: ${error.message}`);
+        this.logger.error(`[Installation] Stack trace: ${error.stack}`);
+      }
       throw error;
     }
   }
