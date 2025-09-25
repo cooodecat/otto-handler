@@ -132,7 +132,7 @@ export class DeploymentEventsService {
 
         default:
           this.logger.debug(
-            `Unknown ECS service event type: ${serviceDetail.eventType ?? 'undefined'}`,
+            `Unknown ECS service event type: ${String(serviceDetail.eventType ?? 'undefined')}`,
           );
       }
     } catch (error) {
@@ -244,7 +244,7 @@ export class DeploymentEventsService {
 
         default:
           this.logger.debug(
-            `Unknown target health state: ${detail.state ?? 'undefined'}`,
+            `Unknown target health state: ${String(detail.state ?? 'undefined')}`,
           );
       }
     } catch (error) {
@@ -330,14 +330,18 @@ export class DeploymentEventsService {
             ...deployment.metadata,
             runningTasks: [
               ...(Array.isArray(deployment.metadata?.runningTasks)
-                ? deployment.metadata.runningTasks
+                ? (deployment.metadata.runningTasks as Array<{
+                    taskArn: string;
+                    startedAt?: string;
+                    connectivity: string;
+                  }>)
                 : []),
               {
                 taskArn: taskDetail.taskArn,
                 startedAt: taskDetail.startedAt,
                 connectivity: taskDetail.connectivity,
               },
-            ].filter(Boolean),
+            ],
           },
         },
       );
@@ -357,7 +361,12 @@ export class DeploymentEventsService {
             ...deployment.metadata,
             stoppedTasks: [
               ...(Array.isArray(deployment.metadata?.stoppedTasks)
-                ? deployment.metadata.stoppedTasks
+                ? (deployment.metadata.stoppedTasks as Array<{
+                    taskArn: string;
+                    exitCode?: number;
+                    stoppedReason?: string;
+                    stoppedAt?: string;
+                  }>)
                 : []),
               {
                 taskArn: taskDetail.taskArn,
@@ -365,7 +374,7 @@ export class DeploymentEventsService {
                 stoppedReason: taskDetail.stoppedReason,
                 stoppedAt: taskDetail.stoppedAt,
               },
-            ].filter(Boolean),
+            ],
           },
         },
       );
@@ -404,14 +413,18 @@ export class DeploymentEventsService {
             ...deployment.metadata,
             healthyTargets: [
               ...(Array.isArray(deployment.metadata?.healthyTargets)
-                ? deployment.metadata.healthyTargets
+                ? (deployment.metadata.healthyTargets as Array<{
+                    id: string;
+                    port: number;
+                    healthyAt: string;
+                  }>)
                 : []),
               {
                 id: targetDetail.target.id,
                 port: targetDetail.target.port,
                 healthyAt: targetDetail.timestamp,
               },
-            ].filter(Boolean),
+            ],
           },
         },
       );
@@ -437,7 +450,12 @@ export class DeploymentEventsService {
           ...deployment.metadata,
           unhealthyTargets: [
             ...(Array.isArray(deployment.metadata?.unhealthyTargets)
-              ? deployment.metadata.unhealthyTargets
+              ? (deployment.metadata.unhealthyTargets as Array<{
+                  id: string;
+                  port: number;
+                  reason?: string;
+                  unhealthyAt: string;
+                }>)
               : []),
             {
               id: targetDetail.target.id,
