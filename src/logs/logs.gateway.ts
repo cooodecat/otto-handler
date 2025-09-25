@@ -138,6 +138,16 @@ export class LogsGateway
   afterInit(server: Server): void {
     this.logger.log('LogsGateway initialized');
 
+    if (!server) {
+      this.logger.warn('Server is undefined in afterInit');
+      return;
+    }
+
+    if (!server.engine) {
+      this.logger.warn('Server engine is undefined in afterInit');
+      return;
+    }
+
     server.engine.on('connection_error', (err: EngineConnectionError) => {
       const origin =
         err?.req?.headers?.origin ?? err?.context?.request?.headers?.origin;
