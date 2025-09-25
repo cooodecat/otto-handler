@@ -90,8 +90,17 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `WebSocket connection attempt from: ${origin || 'unknown origin'}`,
     );
 
-    // JWT 토큰 검증 (개발 환경에서는 선택적)
-    const token = client.handshake.auth.token as string;
+    // JWT 토큰 검증 - auth.token 또는 쿠키에서 추출
+    let token = client.handshake.auth.token as string;
+    
+    // auth.token이 없으면 쿠키에서 access_token 추출
+    if (!token && client.handshake.headers.cookie) {
+      const cookies = this.parseCookies(client.handshake.headers.cookie);
+      token = cookies['access_token'] || '';
+      if (token) {
+        this.logger.log('Token extracted from cookie');
+      }
+    }
 
     // 개발 환경에서는 토큰이 없어도 허용
     if (process.env.NODE_ENV === 'development' && !token) {
@@ -282,14 +291,41 @@ export class LogsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
-      const decoded = this.jwtService.decode<{ userId: string }>(token);
-      if (!decoded || !decoded.userId) {
+      // JWT 디코딩 - sub 필드 지원 (HTTP 인증과 통일)
+      const decoded = this.jwtService.decode<{ sub?: string; userId?: string }>(token);
+      if (!decoded) {
         return null;
       }
-      return decoded;
+      
+      // sub 필드 우선, 없으면 userId 필드 사용 (하위 호환성)
+      const userId = decoded.sub || decoded.userId;
+      if (!userId) {
+        this.logger.warn('Token missing both sub and userId fields');
+        return null;
+      }
+      
+      return { userId };
     } catch (error) {
       this.logger.error('Token validation error:', error as Error);
       return null;
     }
+  }
+
+  private parseCookies(cookieString: string): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    if (!cookieString) return cookies;
+    
+    try {
+      cookieString.split(';').forEach(cookie => {
+        const [key, ...rest] = cookie.trim().split('=');
+        if (key) {
+          cookies[key] = decodeURIComponent(rest.join('='));
+        }
+      });
+    } catch (error) {
+      this.logger.error('Cookie parsing error:', error);
+    }
+    
+    return cookies;
   }
 }
