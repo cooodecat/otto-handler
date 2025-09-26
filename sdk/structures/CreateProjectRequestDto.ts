@@ -1,4 +1,4 @@
-import type { AnyCICDNodeData } from "./AnyCICDNodeData";
+import type { CICDNodeData } from "./CICDNodeData";
 
 export type CreateProjectRequestDto = {
   /**
@@ -39,7 +39,7 @@ export type CreateProjectRequestDto = {
   /**
    * CI/CD Flow 노드 데이터
    */
-  flowNodes?: undefined | AnyCICDNodeData[];
+  flowNodes?: undefined | CICDNodeData[];
 
   /**
    * CodeBuild 프로젝트 이름 (Backend 자동 생성)
