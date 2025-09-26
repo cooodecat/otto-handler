@@ -260,6 +260,33 @@ export class LogsController {
     };
   }
 
+  @Post('executions/recover-missing-logs')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Manually trigger recovery of missing logs' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns recovery result',
+  })
+  async recoverMissingLogs(): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+  }> {
+    try {
+      await this.logsService.recoverMissingLogs();
+      return {
+        success: true,
+        message: 'Log recovery completed successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Log recovery failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
   @Get('executions/:id/archive-url')
   @ApiOperation({ summary: 'Get S3 archive URL for completed execution' })
   @ApiParam({ name: 'id', description: 'Execution ID' })
