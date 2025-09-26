@@ -8,12 +8,13 @@ import { DeploymentEventsService } from './deployment-events.service';
 import { PipelineCleanupService } from './pipeline-cleanup.service';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { Deployment } from '../database/entities/deployment.entity';
+import { Execution } from '../database/entities/execution.entity';
 import { AwsModule } from '../aws/aws.module';
 import { LogsModule } from '../logs/logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Pipeline, Deployment]),
+    TypeOrmModule.forFeature([Pipeline, Deployment, Execution]),
     AwsModule,
     LogsModule, // WebSocket 브로드캐스팅용
   ],

@@ -13,12 +13,14 @@ import { ExecutionArchive } from '../database/entities/execution-archive.entity'
 import { Project } from '../database/entities/project.entity';
 import { User } from '../database/entities/user.entity';
 import { Pipeline } from '../database/entities/pipeline.entity';
+import { Deployment } from '../database/entities/deployment.entity';
 import { LogsGateway } from './logs.gateway';
 import { JwtService } from '../auth/jwt.service';
 import { TestLogsController } from './test-logs.controller';
 import { RedisModule } from '../common/redis/redis.module';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { CodeBuildModule } from '../codebuild/codebuild.module';
+import { DeploymentModule } from '../deployment/deployment.module';
 
 @Module({
   imports: [
@@ -29,10 +31,12 @@ import { CodeBuildModule } from '../codebuild/codebuild.module';
       Project,
       User,
       Pipeline,
+      Deployment,
     ]),
     RedisModule,
     forwardRef(() => PipelineModule),
     forwardRef(() => CodeBuildModule),
+    forwardRef(() => DeploymentModule),
   ],
   controllers: [LogsController, TestLogsController, EventBridgeController],
   providers: [

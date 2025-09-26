@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { Pipeline } from '../database/entities/pipeline.entity';
+import { Execution } from '../database/entities/execution.entity';
 import { AwsEcsService } from '../aws/aws-ecs.service';
 import { AwsAlbService } from '../aws/aws-alb.service';
 import { AwsRoute53Service } from '../aws/aws-route53.service';
@@ -31,6 +32,8 @@ export class DeploymentService {
   constructor(
     @InjectRepository(Pipeline)
     private readonly pipelineRepository: Repository<Pipeline>,
+    @InjectRepository(Execution)
+    private readonly executionRepository: Repository<Execution>,
     private readonly ecsService: AwsEcsService,
     private readonly albService: AwsAlbService,
     private readonly route53Service: AwsRoute53Service,
@@ -63,6 +66,7 @@ export class DeploymentService {
   async deployAfterBuild(
     pipelineId: string,
     userId: string,
+    executionId?: string,
   ): Promise<{
     deployUrl: string;
     ecsServiceArn: string;
@@ -154,6 +158,7 @@ export class DeploymentService {
       userId,
       deployUrl,
       targetGroupResult.targetGroupArn, // 이제 ALB에 연결된 타겟 그룹 ARN 전달
+      executionId,
     );
 
     this.logger.log(`📋 [STEP 7/8] Route53 DNS 설정 중...`);
@@ -207,6 +212,16 @@ export class DeploymentService {
       },
     );
 
+    // Execution의 logStreamName 업데이트 (executionId가 있는 경우)
+    if (executionId) {
+      const logStreamName = `otto-${executionId}/${serviceName}`;
+      await this.executionRepository.update(executionId, {
+        logStreamName: logStreamName,
+        awsDeploymentId: deployment.deploymentId,
+      });
+      this.logger.log(`📝 Execution 로그 스트림 업데이트: ${logStreamName}`);
+    }
+
     this.logger.log(`🎉 [배포 설정 완료] EventBridge가 나머지를 처리합니다!`);
     this.logger.log(`   🌐 배포 URL: https://${deployUrl}`);
     this.logger.log(`   📊 배포 추적: ${deployment.deploymentId}`);
@@ -244,6 +259,7 @@ export class DeploymentService {
     userId: string,
     deployUrl: string,
     targetGroupArn?: string, // 타겟 그룹 ARN 추가
+    executionId?: string, // execution ID 추가
   ): Promise<{ serviceArn: string }> {
     // 인프라 구성 사용 (이미 조회됨)
     const infrastructure =
@@ -288,7 +304,7 @@ export class DeploymentService {
               options: {
                 'awslogs-group': `/ecs/otto-pipelines/${pipeline.pipelineId}`,
                 'awslogs-region': process.env.AWS_REGION || 'ap-northeast-2',
-                'awslogs-stream-prefix': 'otto',
+                'awslogs-stream-prefix': executionId || 'otto-fallback',
               },
             },
             environment: [

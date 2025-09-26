@@ -37,13 +37,13 @@ export class Deployment {
   @PrimaryGeneratedColumn('uuid')
   deploymentId: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar' })
   pipelineId: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar' })
   userId: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar' })
   projectId: string;
 
   @Column({
@@ -106,10 +106,10 @@ export class Deployment {
   @ManyToOne(() => Pipeline, (pipeline) => pipeline.deployments, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'pipelineId', referencedColumnName: 'pipelineId' })
+  @JoinColumn({ name: 'pipeline_id' })
   pipeline: Pipeline;
 
   @ManyToOne(() => Project)
-  @JoinColumn({ name: 'projectId', referencedColumnName: 'projectId' })
+  @JoinColumn({ name: 'project_id' })
   project: Project;
 }

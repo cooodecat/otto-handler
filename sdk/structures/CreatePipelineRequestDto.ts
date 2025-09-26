@@ -1,3 +1,5 @@
+import type { PipelineData } from "./PipelineData";
+
 export type CreatePipelineRequestDto = {
   /**
    * 프로젝트 ID
@@ -12,5 +14,5 @@ export type CreatePipelineRequestDto = {
   /**
    * 파이프라인 데이터 (JSON)
    */
-  data: any;
+  data: PipelineData;
 };

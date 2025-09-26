@@ -15,6 +15,11 @@ import { LogLevel } from '../database/entities/execution-log.entity';
 import { CloudwatchService } from './services/cloudwatch/cloudwatch.service';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { PipelineService } from '../pipeline/pipeline.service';
+import { DeploymentTrackerService } from '../deployment/deployment-tracker.service';
+import {
+  Deployment,
+  DeploymentStatus,
+} from '../database/entities/deployment.entity';
 
 export interface EventBridgeEvent {
   id: string;
@@ -25,7 +30,7 @@ export interface EventBridgeEvent {
   source: string;
   resources: string[];
   'detail-type': string;
-  detail: CodeBuildDetail;
+  detail: CodeBuildDetail | EcsDetail | AlbDetail;
 }
 
 export interface CodeBuildDetail {
@@ -55,6 +60,84 @@ export interface CodeBuildDetail {
   };
 }
 
+export interface EcsDetail {
+  // Service 관련 필드
+  eventName?: string;
+  eventType?:
+    | 'SERVICE_DEPLOYMENT_COMPLETED'
+    | 'SERVICE_DEPLOYMENT_IN_PROGRESS'
+    | 'SERVICE_DEPLOYMENT_FAILED'
+    | 'SERVICE_TASK_DEFINITION_UPDATED'
+    | 'SERVICE_STEADY_STATE';
+  serviceName?: string;
+  serviceArn?: string;
+  desiredCount?: number;
+  runningCount?: number;
+  pendingCount?: number;
+  deploymentId?: string;
+
+  // Task 관련 필드
+  clusterArn: string;
+  taskArn?: string;
+  taskDefinitionArn?: string;
+  lastStatus?:
+    | 'PENDING'
+    | 'ACTIVATING'
+    | 'RUNNING'
+    | 'STOPPING'
+    | 'STOPPED'
+    | 'DEPROVISIONING';
+  desiredStatus?: 'RUNNING' | 'STOPPED';
+  startedAt?: string;
+  stoppedAt?: string;
+  stoppedReason?: string;
+  stopCode?: string;
+  executionStoppedAt?: string;
+  stoppingAt?: string;
+  exitCode?: number;
+  connectivity?: 'CONNECTED' | 'DISCONNECTED';
+  connectivityAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  version?: number;
+  group?: string; // e.g., "service:otto-service-xxx"
+
+  // Task 세부 정보
+  cpu?: string;
+  memory?: string;
+  availabilityZone?: string;
+  launchType?: string;
+  platformVersion?: string;
+  pullStartedAt?: string;
+  pullStoppedAt?: string;
+  containers?: Array<{
+    name: string;
+    lastStatus: string;
+    exitCode?: number;
+    image?: string;
+    imageDigest?: string;
+    runtimeId?: string;
+    taskArn?: string;
+    networkInterfaces?: Array<{
+      attachmentId: string;
+      privateIpv4Address: string;
+    }>;
+    cpu?: string;
+  }>;
+}
+
+export interface AlbDetail {
+  targetGroupArn: string;
+  target: {
+    id: string; // IP 주소
+    port: number;
+    availabilityZone?: string;
+  };
+  state: 'healthy' | 'unhealthy' | 'unavailable' | 'draining';
+  stateTransitionReason?: string;
+  timestamp: string;
+}
+
 @Injectable()
 export class EventBridgeService {
   private readonly logger = new Logger(EventBridgeService.name);
@@ -73,6 +156,10 @@ export class EventBridgeService {
     private executionRepository: Repository<Execution>,
     @InjectRepository(Pipeline)
     private pipelineRepository: Repository<Pipeline>,
+    @InjectRepository(Deployment)
+    private deploymentRepository: Repository<Deployment>,
+    @Inject(forwardRef(() => DeploymentTrackerService))
+    private deploymentTrackerService: DeploymentTrackerService,
   ) {
     const envValue = this.configService.get<string>('USE_EVENTBRIDGE', 'false');
     this.useEventBridge = envValue === 'true';
@@ -98,7 +185,7 @@ export class EventBridgeService {
   }
 
   async processEvent(event: EventBridgeEvent): Promise<void> {
-    const { id: eventId, detail } = event;
+    const { id: eventId, source } = event;
 
     try {
       // 이벤트 ID로 중복 체크 (네트워크 재시도 방지)
@@ -110,147 +197,15 @@ export class EventBridgeService {
 
       await this.redisService.saveEventHistory(eventId, event);
 
-      const buildId = detail['build-id'];
-      const buildStatus = detail['build-status'];
-      const projectName = detail['project-name'];
-
-      this.logger.log(
-        `Processing EventBridge event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`,
-      );
-
-      // Debug: Check if this is a Phase Change event
-      if (
-        !buildStatus &&
-        event['detail-type'] === 'CodeBuild Build Phase Change'
-      ) {
-        // Use proper type casting for phase change events
-        interface PhaseChangeDetail extends CodeBuildDetail {
-          'current-phase'?: string;
-          'completed-phase'?: string;
-          'current-phase-status'?: string;
-          'completed-phase-status'?: string;
-        }
-        const phaseDetail = detail as PhaseChangeDetail;
-        const phase =
-          phaseDetail['current-phase'] || phaseDetail['completed-phase'] || '';
-        const phaseStatus =
-          phaseDetail['current-phase-status'] ||
-          phaseDetail['completed-phase-status'] ||
-          '';
-        this.logger.log(
-          `Phase change event - Phase: ${phase}, Status: ${phaseStatus}`,
-        );
-
-        // Phase change 이벤트에서도 execution 찾아서 CloudWatch 폴링 확인
-        const phaseExecution = await this.findExecutionByBuildId(buildId);
-        if (
-          phaseExecution &&
-          !this.cloudwatchService.isPolling(phaseExecution.executionId)
-        ) {
-          this.logger.log(
-            `Starting CloudWatch polling for phase change event - Execution: ${phaseExecution.executionId}`,
-          );
-          try {
-            await this.cloudwatchService.startPolling(phaseExecution);
-          } catch (error) {
-            this.logger.error(
-              `Failed to start CloudWatch polling: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            );
-          }
-        }
-
-        // Phase 정보를 WebSocket으로 전송
-        if (phaseExecution) {
-          const phaseEvent = {
-            executionId: phaseExecution.executionId,
-            type: 'phase-change',
-            phase: String(phase || ''),
-            status: String(phaseStatus || ''),
-            timestamp: new Date().toISOString(),
-          };
-          this.logsGateway.server
-            .to(`execution:${phaseExecution.executionId}`)
-            .emit('phase:update', phaseEvent);
-        }
-
-        return;
-      }
-
-      // buildId로 기존 실행 찾기 - 동일한 빌드의 연속된 이벤트는 같은 execution 사용
-      let execution = await this.findExecutionByBuildId(buildId);
-
-      if (!execution) {
-        if (buildStatus === 'IN_PROGRESS') {
-          // buildId에서 UUID 추출하여 executionId로 사용된 execution이 있는지 확인
-          const executionId = buildId.split(':').pop();
-          execution = await this.executionRepository.findOne({
-            where: { executionId },
-          });
-
-          if (execution) {
-            // CodeBuild 서비스에서 이미 생성한 execution이 있으면 awsBuildId와 logStreamName 업데이트
-            this.logger.log(
-              `Found pre-created execution ${executionId}, updating build info and starting CloudWatch polling`,
-            );
-
-            // logStreamName이 없으면 설정
-            if (!execution.logStreamName) {
-              execution.logStreamName = executionId;
-            }
-
-            execution.awsBuildId = buildId;
-            await this.executionRepository.save(execution);
-
-            // CloudWatch 폴링 시작
-            try {
-              this.logger.log(
-                `Attempting to start CloudWatch polling for execution ${executionId}`,
-              );
-              await this.cloudwatchService.startPolling(execution);
-              this.logger.log(
-                `Successfully started CloudWatch polling for existing execution ${executionId}`,
-              );
-            } catch (error) {
-              this.logger.error(
-                `Failed to start CloudWatch polling for ${executionId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                error instanceof Error ? error.stack : undefined,
-              );
-            }
-          } else {
-            // 정말로 새로운 execution이면 생성
-            await this.createNewExecution(buildId, projectName, event);
-            return;
-          }
-        } else {
-          this.logger.warn(
-            `No execution found for build ${buildId}, status: ${buildStatus}`,
-          );
-          return;
-        }
-      }
-
-      await this.updateExecutionStatus(execution, buildStatus, detail);
-
-      // EventBridge 상태 변경 이벤트는 로그로 저장하지 않음
-      // CloudWatch 폴링을 통해 실제 빌드 로그를 가져옴
-
-      // Status 변경만 WebSocket으로 브로드캐스트
-      const statusEvent = {
-        executionId: execution.executionId,
-        type: 'status-change',
-        status: buildStatus,
-        timestamp: new Date().toISOString(),
-      };
-      this.broadcastStatusEvent(execution.executionId, statusEvent);
-      const logEvent = this.createLogEvent(execution, event) as unknown;
-      this.broadcastLogEvent(execution.executionId, logEvent);
-
-      if (
-        buildStatus === 'SUCCEEDED' ||
-        buildStatus === 'FAILED' ||
-        buildStatus === 'STOPPED'
-      ) {
-        await this.finalizeExecution(execution, buildStatus);
+      // 소스별로 이벤트 처리 분기
+      if (source === 'aws.codebuild') {
+        await this.processCodeBuildEvent(event);
+      } else if (source === 'aws.ecs') {
+        this.processEcsEvent(event);
+      } else if (source === 'aws.elasticloadbalancing') {
+        this.processAlbEvent(event);
+      } else {
+        this.logger.warn(`Unsupported event source: ${source}`);
       }
     } catch (error) {
       this.logger.error(
@@ -258,6 +213,401 @@ export class EventBridgeService {
         error,
       );
       throw error;
+    }
+  }
+
+  /**
+   * CodeBuild 이벤트 처리
+   */
+  private async processCodeBuildEvent(event: EventBridgeEvent): Promise<void> {
+    const { id: eventId, detail } = event;
+    const codeBuildDetail = detail as CodeBuildDetail;
+
+    const buildId = codeBuildDetail['build-id'];
+    const buildStatus = codeBuildDetail['build-status'];
+    const projectName = codeBuildDetail['project-name'];
+
+    this.logger.log(
+      `Processing CodeBuild event: ${eventId}, Build: ${buildId}, Status: ${buildStatus}`,
+    );
+
+    // Debug: Check if this is a Phase Change event
+    if (
+      !buildStatus &&
+      event['detail-type'] === 'CodeBuild Build Phase Change'
+    ) {
+      // Use proper type casting for phase change events
+      interface PhaseChangeDetail extends CodeBuildDetail {
+        'current-phase'?: string;
+        'completed-phase'?: string;
+        'current-phase-status'?: string;
+        'completed-phase-status'?: string;
+      }
+      const phaseDetail = codeBuildDetail as PhaseChangeDetail;
+      const phase =
+        phaseDetail['current-phase'] || phaseDetail['completed-phase'] || '';
+      const phaseStatus =
+        phaseDetail['current-phase-status'] ||
+        phaseDetail['completed-phase-status'] ||
+        '';
+      this.logger.log(
+        `Phase change event - Phase: ${phase}, Status: ${phaseStatus}`,
+      );
+
+      // Phase change 이벤트에서도 execution 찾아서 CloudWatch 폴링 확인
+      const phaseExecution = await this.findExecutionByBuildId(buildId);
+      if (
+        phaseExecution &&
+        !this.cloudwatchService.isPolling(phaseExecution.executionId)
+      ) {
+        this.logger.log(
+          `Starting CloudWatch polling for phase change event - Execution: ${phaseExecution.executionId}`,
+        );
+        try {
+          await this.cloudwatchService.startPolling(phaseExecution);
+        } catch (error) {
+          this.logger.error(
+            `Failed to start CloudWatch polling: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+        }
+      }
+
+      // Phase 정보를 WebSocket으로 전송
+      if (phaseExecution) {
+        const phaseEvent = {
+          executionId: phaseExecution.executionId,
+          type: 'phase-change',
+          phase: String(phase || ''),
+          status: String(phaseStatus || ''),
+          timestamp: new Date().toISOString(),
+        };
+        this.logsGateway.server
+          .to(`execution:${phaseExecution.executionId}`)
+          .emit('phase:update', phaseEvent);
+      }
+
+      return;
+    }
+
+    // buildId로 기존 실행 찾기 - 동일한 빌드의 연속된 이벤트는 같은 execution 사용
+    let execution = await this.findExecutionByBuildId(buildId);
+
+    if (!execution) {
+      if (buildStatus === 'IN_PROGRESS') {
+        // buildId에서 UUID 추출하여 executionId로 사용된 execution이 있는지 확인
+        const executionId = buildId.split(':').pop();
+        execution = await this.executionRepository.findOne({
+          where: { executionId },
+        });
+
+        if (execution) {
+          // CodeBuild 서비스에서 이미 생성한 execution이 있으면 awsBuildId와 logStreamName 업데이트
+          this.logger.log(
+            `Found pre-created execution ${executionId}, updating build info and starting CloudWatch polling`,
+          );
+
+          // logStreamName이 없으면 설정
+          if (!execution.logStreamName) {
+            execution.logStreamName = executionId;
+          }
+
+          execution.awsBuildId = buildId;
+          await this.executionRepository.save(execution);
+
+          // CloudWatch 폴링 시작
+          try {
+            this.logger.log(
+              `Attempting to start CloudWatch polling for execution ${executionId}`,
+            );
+            await this.cloudwatchService.startPolling(execution);
+            this.logger.log(
+              `Successfully started CloudWatch polling for existing execution ${executionId}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to start CloudWatch polling for ${executionId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              error instanceof Error ? error.stack : undefined,
+            );
+          }
+        } else {
+          // 정말로 새로운 execution이면 생성
+          await this.createNewExecution(buildId, projectName, event);
+          return;
+        }
+      } else {
+        this.logger.warn(
+          `No execution found for build ${buildId}, status: ${buildStatus}`,
+        );
+        return;
+      }
+    }
+
+    await this.updateExecutionStatus(execution, buildStatus, codeBuildDetail);
+
+    // EventBridge 상태 변경 이벤트는 로그로 저장하지 않음
+    // CloudWatch 폴링을 통해 실제 빌드 로그를 가져옴
+
+    // Status 변경만 WebSocket으로 브로드캐스트
+    const statusEvent = {
+      executionId: execution.executionId,
+      type: 'status-change',
+      status: buildStatus,
+      timestamp: new Date().toISOString(),
+    };
+    this.broadcastStatusEvent(execution.executionId, statusEvent);
+    const logEvent = this.createLogEvent(execution, event, codeBuildDetail);
+    this.broadcastLogEvent(execution.executionId, logEvent);
+
+    if (
+      buildStatus === 'SUCCEEDED' ||
+      buildStatus === 'FAILED' ||
+      buildStatus === 'STOPPED'
+    ) {
+      await this.finalizeExecution(execution, buildStatus);
+    }
+  }
+
+  /**
+   * ECS 이벤트 처리 (배포 관련)
+   */
+  private processEcsEvent(event: EventBridgeEvent): void {
+    const { id: eventId, 'detail-type': detailType } = event;
+    const ecsDetail = event.detail as EcsDetail;
+
+    this.logger.log(
+      `Processing ECS event: ${eventId}, Type: ${detailType}, Service: ${ecsDetail.serviceName}`,
+    );
+
+    // DeploymentEventsService에서 처리하도록 위임
+    // const { DeploymentEventsService } = await import(
+    //   '../deployment/deployment-events.service'
+    // );
+
+    // 현재 서비스 인스턴스가 아닌 별도 처리가 필요한 경우
+    // deployment 모듈의 DeploymentEventsService를 직접 호출
+
+    if (detailType === 'ECS Service State Change') {
+      this.logger.log(
+        `Delegating ECS Service State Change to DeploymentEventsService`,
+      );
+      // TODO: DeploymentEventsService.handleEcsServiceStateChange 호출
+    } else if (detailType === 'ECS Task State Change') {
+      // group에서 서비스명 추출: "service:otto-0fcfb499-c0d2-4eae-b560-3453c9408d8c"
+      const serviceName = ecsDetail.group?.startsWith('service:')
+        ? ecsDetail.group.substring('service:'.length)
+        : ecsDetail.group || 'unknown';
+
+      // 컨테이너 정보 추출
+      const containers = ecsDetail.containers || [];
+      const appContainer =
+        containers.find((c) => c.name === 'app') || containers[0];
+
+      this.logger.log(`📦 ===============================================`);
+      this.logger.log(`📦 🔄 ECS 태스크 상태 변경 🔄`);
+      this.logger.log(`📦 ===============================================`);
+      this.logger.log(`🏷️ 서비스: ${serviceName}`);
+      this.logger.log(`🏗️ 클러스터: ${ecsDetail.clusterArn?.split('/').pop()}`);
+      this.logger.log(`📋 태스크 ARN: ${ecsDetail.taskArn?.split('/').pop()}`);
+      this.logger.log(
+        `📋 태스크 정의: ${ecsDetail.taskDefinitionArn?.split('/').pop()}`,
+      );
+      this.logger.log(`🌍 가용 영역: ${ecsDetail.availabilityZone}`);
+
+      if (ecsDetail.lastStatus === 'RUNNING') {
+        this.logger.log(`🟢 ===============================================`);
+        this.logger.log(`🟢 ✅ 태스크가 실행 중입니다! ✅`);
+        this.logger.log(`🟢 ===============================================`);
+        this.logger.log(
+          `✅ 태스크 상태: ${ecsDetail.lastStatus} → ${ecsDetail.desiredStatus}`,
+        );
+        this.logger.log(`✅ 연결 상태: ${ecsDetail.connectivity || 'N/A'}`);
+        this.logger.log(
+          `✅ CPU: ${ecsDetail.cpu}, 메모리: ${ecsDetail.memory}`,
+        );
+        if (appContainer) {
+          this.logger.log(`✅ 컨테이너 상태: ${appContainer.lastStatus}`);
+          this.logger.log(`✅ 이미지: ${appContainer.image?.split('/').pop()}`);
+        }
+        this.logger.log(`🟢 ===============================================`);
+
+        // 🎯 배포를 SUCCESS로 업데이트
+        this.updateDeploymentToSuccess(serviceName);
+      } else if (
+        ecsDetail.lastStatus === 'STOPPED' ||
+        ecsDetail.lastStatus === 'DEPROVISIONING'
+      ) {
+        this.logger.error(`🔴 ===============================================`);
+        this.logger.error(`🔴 ❌ 태스크가 중지되었습니다! ❌`);
+        this.logger.error(`🔴 ===============================================`);
+        this.logger.error(`❌ 태스크 상태: ${ecsDetail.lastStatus}`);
+        this.logger.error(`❌ 원하는 상태: ${ecsDetail.desiredStatus}`);
+        this.logger.error(
+          `❌ 중지 이유: ${ecsDetail.stoppedReason || '알 수 없음'}`,
+        );
+        this.logger.error(`❌ 중지 코드: ${ecsDetail.stopCode || 'N/A'}`);
+
+        if (appContainer) {
+          this.logger.error(`❌ 컨테이너 상태: ${appContainer.lastStatus}`);
+          this.logger.error(`❌ 종료 코드: ${appContainer.exitCode || 'N/A'}`);
+          this.logger.error(
+            `❌ 이미지: ${appContainer.image?.split('/').pop()}`,
+          );
+        }
+
+        this.logger.error(
+          `❌ 실행 시간: ${ecsDetail.createdAt} ~ ${ecsDetail.executionStoppedAt || ecsDetail.stoppingAt || 'N/A'}`,
+        );
+        this.logger.error(
+          `🔴 Circuit Breaker가 새로운 태스크 시작을 시도할 것입니다.`,
+        );
+        this.logger.error(`🔴 ===============================================`);
+      } else {
+        this.logger.log(`🟡 ===============================================`);
+        this.logger.log(`🟡 🔄 태스크 상태 변경: ${ecsDetail.lastStatus} 🔄`);
+        this.logger.log(`🟡 ===============================================`);
+        this.logger.log(`🔄 현재 상태: ${ecsDetail.lastStatus}`);
+        this.logger.log(`🔄 목표 상태: ${ecsDetail.desiredStatus}`);
+        if (ecsDetail.pullStartedAt && ecsDetail.pullStoppedAt) {
+          const pullDuration =
+            new Date(ecsDetail.pullStoppedAt).getTime() -
+            new Date(ecsDetail.pullStartedAt).getTime();
+          this.logger.log(
+            `🔄 이미지 풀 시간: ${Math.round(pullDuration / 1000)}초`,
+          );
+        }
+        this.logger.log(`🟡 ===============================================`);
+      }
+
+      this.logger.log(
+        `Delegating ECS Task State Change to DeploymentEventsService`,
+      );
+      // TODO: DeploymentEventsService.handleEcsTaskStateChange 호출
+    } else if (detailType === 'ECS Deployment State Change') {
+      this.logger.log(`🎉 ECS Deployment State Change: ${ecsDetail.eventType}`);
+
+      // 공통 배포 정보 로깅
+      this.logger.log(`📋 배포 세부 정보:`);
+      this.logger.log(`   🏷️  서비스명: ${ecsDetail.serviceName}`);
+      this.logger.log(
+        `   🏗️  클러스터: ${ecsDetail.clusterArn?.split('/').pop()}`,
+      );
+      this.logger.log(`   🔢 원하는 태스크 수: ${ecsDetail.desiredCount}`);
+      this.logger.log(`   ▶️  실행 중인 태스크 수: ${ecsDetail.runningCount}`);
+      this.logger.log(`   ⏸️  대기 중인 태스크 수: ${ecsDetail.pendingCount}`);
+
+      if (ecsDetail.eventType === 'SERVICE_DEPLOYMENT_COMPLETED') {
+        this.logger.log(`🎊 ===============================================`);
+        this.logger.log(`🎊 🎉 배포 완료! 🎉`);
+        this.logger.log(`🎊 ===============================================`);
+        this.logger.log(`✅ 서비스: ${ecsDetail.serviceName}`);
+        this.logger.log(`✅ 상태: 배포 성공적으로 완료됨`);
+        this.logger.log(
+          `✅ 태스크 정의: ${ecsDetail.taskDefinitionArn?.split('/').pop()}`,
+        );
+        this.logger.log(`✅ 배포 ID: ${ecsDetail.deploymentId || 'N/A'}`);
+        this.logger.log(`✅ 시작 시간: ${ecsDetail.startedAt || 'N/A'}`);
+
+        if (ecsDetail.desiredCount === ecsDetail.runningCount) {
+          this.logger.log(`✅ 모든 태스크가 정상적으로 실행 중입니다!`);
+        }
+        this.logger.log(`🎊 ===============================================`);
+      } else if (ecsDetail.eventType === 'SERVICE_DEPLOYMENT_FAILED') {
+        this.logger.error(`💥 ===============================================`);
+        this.logger.error(`💥 ❌ 배포 실패! ❌`);
+        this.logger.error(`💥 ===============================================`);
+        this.logger.error(`❌ 서비스: ${ecsDetail.serviceName}`);
+        this.logger.error(`❌ 상태: 배포 실패`);
+        this.logger.error(
+          `❌ 실패 이유: ${ecsDetail.stoppedReason || '알 수 없음'}`,
+        );
+        this.logger.error(`❌ 종료 코드: ${ecsDetail.exitCode || 'N/A'}`);
+        this.logger.error(`❌ 종료 시간: ${ecsDetail.stoppedAt || 'N/A'}`);
+        this.logger.error(
+          `💥 Circuit Breaker가 자동 롤백을 수행했을 수 있습니다.`,
+        );
+        this.logger.error(`💥 ===============================================`);
+      } else if (ecsDetail.eventType === 'SERVICE_DEPLOYMENT_IN_PROGRESS') {
+        this.logger.log(`⚡ ===============================================`);
+        this.logger.log(`⚡ ⏳ 배포 진행 중... ⏳`);
+        this.logger.log(`⚡ ===============================================`);
+        this.logger.log(`⏳ 서비스: ${ecsDetail.serviceName}`);
+        this.logger.log(
+          `⏳ 진행률: ${ecsDetail.runningCount}/${ecsDetail.desiredCount} 태스크 실행 중`,
+        );
+
+        const progressPercent = ecsDetail.desiredCount
+          ? Math.round(
+              ((ecsDetail.runningCount || 0) / ecsDetail.desiredCount) * 100,
+            )
+          : 0;
+        this.logger.log(`⏳ 진행률: ${progressPercent}%`);
+        this.logger.log(`⏳ 새 태스크 배포가 진행 중입니다...`);
+        this.logger.log(`⚡ ===============================================`);
+      }
+    }
+  }
+
+  /**
+   * ALB 이벤트 처리 (헬스체크 관련)
+   */
+  private processAlbEvent(event: EventBridgeEvent): void {
+    const { id: eventId, 'detail-type': detailType } = event;
+    const albDetail = event.detail as AlbDetail;
+
+    this.logger.log(`🏥 ALB 헬스체크 이벤트: ${eventId}`);
+
+    if (detailType === 'ELB Target Health State Change') {
+      // 헬스체크 상태별 상세 로깅
+      const targetInfo = `${albDetail.target.id}:${albDetail.target.port}`;
+      const az = albDetail.target.availabilityZone || 'N/A';
+
+      this.logger.log(`🏥 ===============================================`);
+      this.logger.log(`🏥 🩺 ALB 타겟 헬스체크 상태 변경 🩺`);
+      this.logger.log(`🏥 ===============================================`);
+      this.logger.log(`🎯 타겟: ${targetInfo}`);
+      this.logger.log(`🌍 가용 영역: ${az}`);
+      this.logger.log(`⏰ 시간: ${albDetail.timestamp}`);
+
+      if (albDetail.state === 'healthy') {
+        this.logger.log(`💚 ===============================================`);
+        this.logger.log(`💚 ✅ 헬스체크 성공! 타겟이 정상 상태입니다! ✅`);
+        this.logger.log(`💚 ===============================================`);
+        this.logger.log(`✅ 타겟 상태: HEALTHY 🟢`);
+        this.logger.log(`✅ 트래픽 라우팅: 활성화됨`);
+        this.logger.log(`✅ 서비스 준비: 완료`);
+      } else if (albDetail.state === 'unhealthy') {
+        this.logger.error(`🔴 ===============================================`);
+        this.logger.error(`🔴 ❌ 헬스체크 실패! 타겟이 비정상 상태입니다! ❌`);
+        this.logger.error(`🔴 ===============================================`);
+        this.logger.error(`❌ 타겟 상태: UNHEALTHY 🔴`);
+        this.logger.error(`❌ 트래픽 라우팅: 차단됨`);
+        this.logger.error(
+          `❌ 실패 이유: ${albDetail.stateTransitionReason || '알 수 없음'}`,
+        );
+      } else if (albDetail.state === 'draining') {
+        this.logger.warn(`🟡 ===============================================`);
+        this.logger.warn(`🟡 ⚠️ 타겟 드레이닝 중... ⚠️`);
+        this.logger.warn(`🟡 ===============================================`);
+        this.logger.warn(`⚠️ 타겟 상태: DRAINING 🟡`);
+        this.logger.warn(`⚠️ 기존 연결 종료 중...`);
+        this.logger.warn(`⚠️ 새 트래픽 차단됨`);
+      } else if (albDetail.state === 'unavailable') {
+        this.logger.warn(`⚪ ===============================================`);
+        this.logger.warn(`⚪ ⚠️ 타겟 사용 불가 상태 ⚠️`);
+        this.logger.warn(`⚪ ===============================================`);
+        this.logger.warn(`⚠️ 타겟 상태: UNAVAILABLE ⚪`);
+        this.logger.warn(`⚠️ 헬스체크 미실시`);
+      }
+
+      this.logger.log(
+        `🏥 Target Group ARN: ${albDetail.targetGroupArn.split('/').pop()}`,
+      );
+      this.logger.log(`🏥 ===============================================`);
+
+      this.logger.log(
+        `Delegating ALB Target Health State Change to DeploymentEventsService`,
+      );
+      // TODO: DeploymentEventsService.handleAlbTargetHealthStateChange 호출
     }
   }
 
@@ -290,7 +640,8 @@ export class EventBridgeService {
       );
 
       // Extract metadata from environment variables in build detail
-      const additionalInfo = event.detail['additional-information'];
+      const codeBuildDetail = event.detail as CodeBuildDetail;
+      const additionalInfo = codeBuildDetail['additional-information'];
       const environment = additionalInfo?.environment;
 
       // 환경변수에서 사용자 컨텍스트 추출
@@ -471,6 +822,7 @@ export class EventBridgeService {
   private createLogEvent(
     execution: Execution,
     event: EventBridgeEvent,
+    codeBuildDetail: CodeBuildDetail,
   ): {
     executionId: string;
     timestamp: string;
@@ -486,20 +838,18 @@ export class EventBridgeService {
       source: string;
     };
   } {
-    const { detail } = event;
-
     return {
       executionId: execution.executionId,
       timestamp: new Date(event.time).toISOString(),
       type: 'build-status-change',
-      level: this.getLogLevel(detail['build-status']),
-      message: this.formatLogMessage(detail),
+      level: this.getLogLevel(codeBuildDetail['build-status']),
+      message: this.formatLogMessage(codeBuildDetail),
       metadata: {
-        buildId: detail['build-id'],
-        status: detail['build-status'],
-        phase: detail['current-phase'],
-        phaseContext: detail['current-phase-context'],
-        projectName: detail['project-name'],
+        buildId: codeBuildDetail['build-id'],
+        status: codeBuildDetail['build-status'],
+        phase: codeBuildDetail['current-phase'],
+        phaseContext: codeBuildDetail['current-phase-context'],
+        projectName: codeBuildDetail['project-name'],
         source: 'eventbridge',
       },
     };
@@ -514,38 +864,6 @@ export class EventBridgeService {
         return LogLevel.ERROR;
       default:
         return LogLevel.INFO;
-    }
-  }
-
-  private async saveLogToDatabase(
-    execution: Execution,
-    event: EventBridgeEvent,
-    logEvent: {
-      message: string;
-      level: LogLevel;
-      executionId: string;
-      timestamp: string;
-      type: string;
-      metadata: any;
-    },
-  ): Promise<void> {
-    try {
-      const logData = {
-        executionId: execution.executionId,
-        timestamp: new Date(event.time),
-        message: logEvent.message,
-        level: logEvent.level,
-      };
-
-      await this.logStorage.saveLogs([logData]);
-      this.logger.debug(
-        `Saved log to database for execution ${execution.executionId}`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to save log to database for execution ${execution.executionId}:`,
-        error,
-      );
     }
   }
 
@@ -758,6 +1076,7 @@ export class EventBridgeService {
           await this.pipelineService.deployAfterBuildSuccess(
             pipelineId,
             ottoUserId,
+            execution.executionId,
           );
           this.logger.log(`🎉 자동 배포 트리거 완료: ${pipelineId}`);
           return;
@@ -814,6 +1133,7 @@ export class EventBridgeService {
         await this.pipelineService.deployAfterBuildSuccess(
           pipeline.pipelineId,
           pipeline.project.userId,
+          execution.executionId,
         );
 
       this.logger.log(`🎉 자동 배포 완료!`);
@@ -845,5 +1165,93 @@ export class EventBridgeService {
 
   isEventBridgeEnabled(): boolean {
     return this.useEventBridge;
+  }
+
+  /**
+   * ECS 서비스명으로 배포를 찾아서 SUCCESS로 업데이트
+   */
+  private async updateDeploymentToSuccess(serviceName: string): Promise<void> {
+    try {
+      this.logger.log(`🎯 배포 성공 처리 중: ${serviceName}`);
+
+      // 서비스명에서 pipelineId 추출: otto-{pipelineId} 형태
+      const pipelineId = serviceName.replace('otto-', '');
+
+      this.logger.log(`🔍 파이프라인 ID: ${pipelineId}`);
+
+      // pipelineId로 가장 최근 배포 찾기 (WAITING_HEALTH_CHECK 또는 DEPLOYING_ECS 상태)
+      const deployment = await this.deploymentRepository.findOne({
+        where: {
+          pipelineId,
+          status: DeploymentStatus.WAITING_HEALTH_CHECK, // 또는 다른 진행 중 상태
+        },
+        order: { createdAt: 'DESC' },
+      });
+
+      if (!deployment) {
+        // DEPLOYING_ECS 상태도 확인
+        const deployingDeployment = await this.deploymentRepository.findOne({
+          where: {
+            pipelineId,
+            status: DeploymentStatus.DEPLOYING_ECS,
+          },
+          order: { createdAt: 'DESC' },
+        });
+
+        if (!deployingDeployment) {
+          this.logger.warn(
+            `❌ 배포를 찾을 수 없습니다. 파이프라인: ${pipelineId}`,
+          );
+          return;
+        }
+
+        // DEPLOYING_ECS 상태의 배포를 SUCCESS로 업데이트
+        await this.deploymentTrackerService.updateDeploymentStatus(
+          deployingDeployment.deploymentId,
+          DeploymentStatus.SUCCESS,
+          {
+            metadata: {
+              ...deployingDeployment.metadata,
+              completedAt: new Date().toISOString(),
+              ecsTaskStatus: 'RUNNING',
+            },
+          },
+        );
+
+        this.logger.log(`🎉 ===============================================`);
+        this.logger.log(`🎉 🎊 배포가 성공했습니다! 🎊`);
+        this.logger.log(`🎉 ===============================================`);
+        this.logger.log(`✅ 서비스: ${serviceName}`);
+        this.logger.log(`✅ 파이프라인: ${pipelineId}`);
+        this.logger.log(`✅ 배포 ID: ${deployingDeployment.deploymentId}`);
+        this.logger.log(`✅ 상태: DEPLOYING_ECS → SUCCESS`);
+        this.logger.log(`🎉 ===============================================`);
+        return;
+      }
+
+      // WAITING_HEALTH_CHECK 상태의 배포를 SUCCESS로 업데이트
+      await this.deploymentTrackerService.updateDeploymentStatus(
+        deployment.deploymentId,
+        DeploymentStatus.SUCCESS,
+        {
+          metadata: {
+            ...deployment.metadata,
+            completedAt: new Date().toISOString(),
+            ecsTaskStatus: 'RUNNING',
+          },
+        },
+      );
+
+      this.logger.log(`🎉 ===============================================`);
+      this.logger.log(`🎉 🎊 배포가 성공했습니다! 🎊`);
+      this.logger.log(`🎉 ===============================================`);
+      this.logger.log(`✅ 서비스: ${serviceName}`);
+      this.logger.log(`✅ 파이프라인: ${pipelineId}`);
+      this.logger.log(`✅ 배포 ID: ${deployment.deploymentId}`);
+      this.logger.log(`✅ 상태: WAITING_HEALTH_CHECK → SUCCESS`);
+      this.logger.log(`🎉 ===============================================`);
+    } catch (error) {
+      this.logger.error(`❌ 배포 성공 처리 실패: ${error}`);
+    }
   }
 }
