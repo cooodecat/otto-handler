@@ -522,7 +522,7 @@ export class LogsService {
         .where('execution.status = :status', {
           status: ExecutionStatus.SUCCESS,
         })
-        .andWhere('execution.createdAt >= :oneDayAgo', { oneDayAgo })
+        .andWhere('execution.started_at >= :oneDayAgo', { oneDayAgo })
         .getMany();
 
       let recoveredCount = 0;
