@@ -425,6 +425,7 @@ export class LogsController {
       logStreamName: execution.logStreamName,
       metadata: {
         ...execution.metadata,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         pipelineName:
           execution.pipeline?.pipelineName ||
           execution.metadata?.pipelineName ||
