@@ -236,6 +236,35 @@ export class PipelineController {
 
   /**
    * @tag pipeline
+   * @summary 배포 상태 조회
+   */
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.NOT_FOUND,
+    description: '배포 정보를 찾을 수 없음',
+  })
+  @TypedException<CommonErrorResponseDto>({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '인증 실패',
+  })
+  @HttpCode(200)
+  @TypedRoute.Get('/:pipelineId/deployment/status')
+  @AuthGuard()
+  async getDeploymentStatus(
+    @TypedParam('pipelineId') pipelineId: string,
+    @Req() req: IRequestType,
+  ): Promise<{
+    status: string;
+    deployUrl: string | null;
+    updatedAt: Date;
+  }> {
+    return await this.pipelineService.getDeploymentStatus(
+      pipelineId,
+      req.user.userId,
+    );
+  }
+
+  /**
+   * @tag pipeline
    * @summary 배포 헬스체크 조회
    */
   @TypedException<CommonErrorResponseDto>({

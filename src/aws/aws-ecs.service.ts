@@ -34,8 +34,12 @@ export class AwsEcsService {
   private ecsClient: ECSClient;
 
   constructor(private configService: ConfigService) {
+    // 리전을 ap-northeast-2로 하드코딩
+    const region = 'ap-northeast-2';
+    console.log(`[AwsEcsService] Initializing with region: ${region}`);
+
     this.ecsClient = new ECSClient({
-      region: this.configService.get<string>('AWS_REGION') || 'us-east-1',
+      region,
       credentials: {
         accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
         secretAccessKey: this.configService.get<string>(
