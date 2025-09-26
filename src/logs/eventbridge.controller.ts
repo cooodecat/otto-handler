@@ -74,9 +74,13 @@ export class EventBridgeController {
         throw new BadRequestException('Invalid event format');
       }
 
-      if (event.source !== 'aws.codebuild') {
+      if (
+        !['aws.codebuild', 'aws.ecs', 'aws.elasticloadbalancing'].includes(
+          event.source,
+        )
+      ) {
         this.logger.warn(
-          `Ignoring non-CodeBuild event from source: ${event.source}`,
+          `Ignoring unsupported event from source: ${event.source}`,
         );
         return {
           success: true,

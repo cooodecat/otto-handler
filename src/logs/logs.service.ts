@@ -6,6 +6,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -17,11 +18,19 @@ import {
   ExecutionStatus,
   ExecutionType,
 } from '../database/entities/execution.entity';
-import { ExecutionLog } from '../database/entities/execution-log.entity';
+import {
+  ExecutionLog,
+  LogLevel,
+} from '../database/entities/execution-log.entity';
 import { User } from '../database/entities/user.entity';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { Project } from '../database/entities/project.entity';
 import { CodeBuildService } from '../codebuild/codebuild.service';
+import {
+  CloudWatchLogsClient,
+  FilterLogEventsCommand,
+  FilterLogEventsCommandInput,
+} from '@aws-sdk/client-cloudwatch-logs';
 
 interface RegisterExecutionDto {
   pipelineId: string;
@@ -58,6 +67,7 @@ interface LogQueryDto {
 @Injectable()
 export class LogsService {
   private readonly logger = new Logger(LogsService.name);
+  private readonly cloudwatchClient: CloudWatchLogsClient;
 
   constructor(
     @InjectRepository(Execution)
@@ -73,7 +83,18 @@ export class LogsService {
     private readonly logStorage: LogStorageService,
     @Inject(forwardRef(() => CodeBuildService))
     private readonly codeBuildService: CodeBuildService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.cloudwatchClient = new CloudWatchLogsClient({
+      region: this.configService.get<string>('AWS_REGION') || 'ap-northeast-2',
+      credentials: {
+        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
+        secretAccessKey: this.configService.get<string>(
+          'AWS_SECRET_ACCESS_KEY',
+        )!,
+      },
+    });
+  }
 
   async registerExecution(dto: RegisterExecutionDto): Promise<Execution> {
     const execution = new Execution();
@@ -235,6 +256,131 @@ export class LogsService {
     }
 
     return dbLogs;
+  }
+
+  /**
+   * Get combined logs for an execution (build + deploy logs from all sources)
+   */
+  async getCombinedExecutionLogs(
+    executionId: string,
+    query: LogQueryDto,
+  ): Promise<ExecutionLog[]> {
+    const execution = await this.executionRepository.findOne({
+      where: { executionId },
+      relations: ['project', 'pipeline'],
+    });
+
+    if (!execution) {
+      throw new NotFoundException(`Execution ${executionId} not found`);
+    }
+
+    const allLogs: ExecutionLog[] = [];
+
+    // 1. Get build logs from database/buffer (existing logic)
+    const buildLogs = await this.getExecutionLogs(executionId, query);
+    allLogs.push(...buildLogs);
+
+    // 2. Get deploy logs from ECS CloudWatch
+    // Try to find related deploy execution or use current execution if it has ECS logs
+    if (execution.pipelineId) {
+      try {
+        let deployExecution = execution;
+
+        // If this is a BUILD execution, find the corresponding DEPLOY execution
+        if (execution.executionType === ExecutionType.BUILD) {
+          const deployExec = await this.executionRepository.findOne({
+            where: {
+              pipelineId: execution.pipelineId,
+              executionType: ExecutionType.DEPLOY,
+            },
+            order: { startedAt: 'DESC' }, // Get the most recent deploy
+          });
+
+          if (deployExec) {
+            deployExecution = deployExec;
+          }
+        }
+
+        // Get ECS logs if we have a deploy execution with logStreamName
+        if (deployExecution.logStreamName) {
+          const ecsLogs = await this.getEcsLogsForExecution(deployExecution);
+          allLogs.push(...ecsLogs);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Failed to fetch ECS logs for execution ${executionId}: ${error}`,
+        );
+      }
+    }
+
+    // Sort by timestamp
+    allLogs.sort((a, b) => {
+      const timeA = a.timestamp?.getTime() || a.createdAt?.getTime() || 0;
+      const timeB = b.timestamp?.getTime() || b.createdAt?.getTime() || 0;
+      return timeA - timeB;
+    });
+
+    // Apply limit if specified
+    if (query.limit) {
+      return allLogs.slice(0, query.limit);
+    }
+
+    return allLogs;
+  }
+
+  /**
+   * Get ECS logs for a specific execution using its logStreamName
+   */
+  private async getEcsLogsForExecution(
+    execution: Execution,
+  ): Promise<ExecutionLog[]> {
+    if (!execution.pipelineId || !execution.logStreamName) {
+      return [];
+    }
+
+    const logGroupName = `/ecs/otto-pipelines/${execution.pipelineId}`;
+
+    // Use the execution-specific log stream name
+    const logStreamName = execution.logStreamName;
+
+    this.logger.log(
+      `Fetching ECS logs for execution ${execution.executionId} from ${logGroupName}/${logStreamName}`,
+    );
+
+    try {
+      const filterParams: FilterLogEventsCommandInput = {
+        logGroupName,
+        logStreamNames: [logStreamName], // Filter by specific stream
+        limit: 1000,
+      };
+
+      const command = new FilterLogEventsCommand(filterParams);
+      const response = await this.cloudwatchClient.send(command);
+
+      const ecsLogs: ExecutionLog[] = (response.events || []).map((event) => {
+        const log = new ExecutionLog();
+        log.executionId = execution.executionId;
+        log.timestamp = new Date(event.timestamp!);
+        log.message = event.message || '';
+        log.level = LogLevel.INFO; // Default to INFO, you can enhance this logic
+        log.phase = 'DEPLOY';
+        log.step = 'ECS_SERVICE';
+        log.stepOrder = 1000; // Put deploy logs after build logs
+        log.createdAt = new Date(event.timestamp!);
+        return log;
+      });
+
+      this.logger.log(
+        `Retrieved ${ecsLogs.length} ECS logs for execution ${execution.executionId}`,
+      );
+      return ecsLogs;
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch ECS logs for execution ${execution.executionId}:`,
+        error as Error,
+      );
+      return [];
+    }
   }
 
   getBufferedLogs(executionId: string, limit?: number): unknown[] {
@@ -567,6 +713,311 @@ export class LogsService {
     } catch (error) {
       this.logger.error('Failed to run scheduled log recovery:', error);
     }
+  }
+
+  /**
+   * Get ECS deployment logs for a pipeline
+   */
+  async getEcsDeploymentLogs(
+    pipelineId: string,
+    userId?: string,
+    options: {
+      limit?: number;
+      startTime?: Date;
+      endTime?: Date;
+    } = {},
+  ): Promise<{
+    logs: Array<{
+      timestamp: string;
+      message: string;
+      level: string;
+      streamName: string;
+    }>;
+    logGroupName: string;
+    hasMore: boolean;
+  }> {
+    try {
+      // Verify user has access to this pipeline
+      const pipeline = await this.pipelineRepository.findOne({
+        where: { pipelineId },
+        relations: ['project'],
+      });
+
+      if (!pipeline) {
+        throw new NotFoundException(`Pipeline ${pipelineId} not found`);
+      }
+
+      if (userId && pipeline.project?.userId !== userId) {
+        throw new ForbiddenException('Access denied to this pipeline');
+      }
+
+      // ECS log group naming: /ecs/otto-pipelines/{pipelineId}
+      const logGroupName = `/ecs/otto-pipelines/${pipelineId}`;
+
+      this.logger.log(
+        `Fetching ECS logs for pipeline ${pipelineId} from ${logGroupName}`,
+      );
+
+      // Create filter parameters
+      const filterParams: FilterLogEventsCommandInput = {
+        logGroupName,
+        limit: Math.min(options.limit || 1000, 10000), // AWS limit is 10,000
+        startTime: options.startTime?.getTime(),
+        endTime: options.endTime?.getTime(),
+        // Sort by timestamp descending to get most recent logs first
+      };
+
+      const command = new FilterLogEventsCommand(filterParams);
+      const response = await this.cloudwatchClient.send(command);
+
+      // Transform AWS log events to our format
+      const logs = (response.events || []).map((event) => ({
+        timestamp: new Date(event.timestamp!).toISOString(),
+        message: event.message || '',
+        level: this.detectEcsLogLevel(event.message || ''),
+        streamName: event.logStreamName || 'unknown',
+      }));
+
+      this.logger.log(
+        `Retrieved ${logs.length} ECS logs for pipeline ${pipelineId}`,
+      );
+
+      return {
+        logs,
+        logGroupName,
+        hasMore:
+          !!response.nextToken && logs.length === (options.limit || 1000),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch ECS logs for pipeline ${pipelineId}:`,
+        error as Error,
+      );
+
+      // Handle specific AWS errors
+      if ((error as Error).name === 'ResourceNotFoundException') {
+        return {
+          logs: [],
+          logGroupName: `/ecs/otto-pipelines/${pipelineId}`,
+          hasMore: false,
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Detect log level from ECS log message
+   */
+  private detectEcsLogLevel(message: string): string {
+    const lowerMessage = message.toLowerCase();
+
+    if (
+      lowerMessage.includes('error') ||
+      lowerMessage.includes('failed') ||
+      lowerMessage.includes('exception') ||
+      lowerMessage.includes('fatal')
+    ) {
+      return 'ERROR';
+    }
+
+    if (lowerMessage.includes('warn') || lowerMessage.includes('warning')) {
+      return 'WARNING';
+    }
+
+    if (
+      lowerMessage.includes('info') ||
+      lowerMessage.includes('starting') ||
+      lowerMessage.includes('listening') ||
+      lowerMessage.includes('server')
+    ) {
+      return 'INFO';
+    }
+
+    if (lowerMessage.includes('debug') || lowerMessage.includes('trace')) {
+      return 'DEBUG';
+    }
+
+    // Default to INFO for HTTP requests and general messages
+    return 'INFO';
+  }
+
+  /**
+   * Get ECS runtime logs for a specific execution with filtering
+   */
+  async getEcsRuntimeLogsByExecution(
+    executionId: string,
+    userId: string,
+    options: {
+      limit?: number;
+      containerName?: string;
+      streamPrefix?: string;
+      startTime?: Date;
+      endTime?: Date;
+    } = {},
+  ): Promise<{
+    logs: Array<{
+      timestamp: string;
+      message: string;
+      level: string;
+      streamName: string;
+      containerName?: string;
+    }>;
+    logGroupName: string;
+    hasMore: boolean;
+    totalStreams: number;
+  }> {
+    const execution = await this.getExecutionById(executionId, userId);
+
+    if (!execution?.pipelineId) {
+      throw new NotFoundException('Pipeline not found for execution');
+    }
+
+    const logGroupName = `/ecs/otto-pipelines/${execution.pipelineId}`;
+    
+    try {
+      // First, discover actual log streams that match this execution
+      const matchingStreams = await this.discoverExecutionLogStreams(
+        logGroupName,
+        executionId,
+        options.containerName
+      );
+
+      if (matchingStreams.length === 0) {
+        this.logger.warn(
+          `No matching log streams found for execution ${executionId} in ${logGroupName}`
+        );
+        return {
+          logs: [],
+          logGroupName,
+          hasMore: false,
+          totalStreams: 0,
+        };
+      }
+
+      this.logger.log(
+        `Found ${matchingStreams.length} matching streams for execution ${executionId}: ${matchingStreams.join(', ')}`
+      );
+
+      const filterParams: FilterLogEventsCommandInput = {
+        logGroupName,
+        logStreamNames: matchingStreams, // Use discovered stream names
+        limit: Math.min(options.limit || 1000, 10000),
+        startTime: options.startTime?.getTime(),
+        endTime: options.endTime?.getTime(),
+      };
+
+      const command = new FilterLogEventsCommand(filterParams);
+      const response = await this.cloudwatchClient.send(command);
+
+      const logs = (response.events || [])
+        .map((event) => {
+          const message = event.message || '';
+          const streamName = event.logStreamName || 'unknown';
+          
+          // Extract container name from stream name
+          // Stream format: {executionId}/{containerName}/{containerInstanceId}
+          const containerName = this.extractContainerNameFromStream(streamName);
+          
+          return {
+            timestamp: new Date(event.timestamp || Date.now()).toISOString(),
+            message,
+            level: this.detectEcsLogLevel(message),
+            streamName,
+            containerName,
+          };
+        })
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      return {
+        logs,
+        logGroupName,
+        hasMore: !!response.nextToken,
+        totalStreams: matchingStreams.length,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to get ECS runtime logs for execution ${executionId}`,
+        error,
+      );
+
+      if (error.name === 'ResourceNotFoundException') {
+        return {
+          logs: [],
+          logGroupName,
+          hasMore: false,
+          totalStreams: 0,
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Discover actual log streams that match a specific execution
+   */
+  private async discoverExecutionLogStreams(
+    logGroupName: string,
+    executionId: string,
+    containerName?: string,
+  ): Promise<string[]> {
+    try {
+      const { DescribeLogStreamsCommand } = await import('@aws-sdk/client-cloudwatch-logs');
+      
+      // Get all log streams in the log group with prefix matching execution
+      const command = new DescribeLogStreamsCommand({
+        logGroupName,
+        logStreamNamePrefix: executionId, // Now using executionId directly as prefix
+        orderBy: 'LastEventTime',
+        descending: true,
+        limit: 50, // Reasonable limit for streams per execution
+      });
+
+      const response = await this.cloudwatchClient.send(command);
+      const streams = response.logStreams || [];
+
+      let matchingStreams = streams
+        .filter(stream => {
+          const streamName = stream.logStreamName || '';
+          // Must start with {executionId}
+          if (!streamName.startsWith(`${executionId}`)) {
+            return false;
+          }
+          // If container name specified, stream must contain it
+          if (containerName && !streamName.includes(containerName)) {
+            return false;
+          }
+          return true;
+        })
+        .map(stream => stream.logStreamName!)
+        .filter(Boolean);
+
+      this.logger.log(
+        `Discovered ${matchingStreams.length} streams for execution ${executionId}: ${matchingStreams.join(', ')}`
+      );
+
+      return matchingStreams;
+    } catch (error) {
+      this.logger.error(
+        `Failed to discover log streams for execution ${executionId} in ${logGroupName}`,
+        error,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Extract container name from ECS log stream name
+   * Stream format: {executionId}/{containerName}/{containerInstanceId}
+   */
+  private extractContainerNameFromStream(streamName: string): string | undefined {
+    const parts = streamName.split('/');
+    if (parts.length >= 2) {
+      return parts[1]; // containerName
+    }
+    return undefined;
   }
 
   /**

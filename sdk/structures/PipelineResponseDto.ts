@@ -1,5 +1,7 @@
 import type { Format } from "typia/lib/tags/Format";
 
+import type { PipelineData } from "./PipelineData";
+
 export type PipelineResponseDto = {
   /**
    * 파이프라인 ID
@@ -24,7 +26,7 @@ export type PipelineResponseDto = {
   /**
    * 파이프라인 데이터 (JSON)
    */
-  data: any;
+  data: PipelineData;
 
   /**
    * ECR 이미지 URI (빌드된 이미지 전체 URI)

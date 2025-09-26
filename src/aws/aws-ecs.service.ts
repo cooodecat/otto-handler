@@ -109,6 +109,15 @@ export class AwsEcsService {
       launchType: input.launchType || 'FARGATE',
       networkConfiguration: input.networkConfiguration,
       loadBalancers: input.loadBalancers,
+      // Deployment Circuit Breaker 기본 활성화
+      deploymentConfiguration: {
+        deploymentCircuitBreaker: {
+          enable: true,
+          rollback: true, // 실패 시 자동 롤백
+        },
+        maximumPercent: 200, // 배포 중 최대 200% 태스크 허용
+        minimumHealthyPercent: 50, // 최소 50% healthy 태스크 유지
+      },
     });
 
     return await this.ecsClient.send(command);
@@ -210,6 +219,15 @@ export class AwsEcsService {
       service,
       desiredCount,
       taskDefinition,
+      // Deployment Circuit Breaker 기본 활성화 (업데이트 시에도 적용)
+      deploymentConfiguration: {
+        deploymentCircuitBreaker: {
+          enable: true,
+          rollback: true, // 실패 시 자동 롤백
+        },
+        maximumPercent: 200, // 배포 중 최대 200% 태스크 허용
+        minimumHealthyPercent: 50, // 최소 50% healthy 태스크 유지
+      },
     });
     return await this.ecsClient.send(command);
   }

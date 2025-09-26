@@ -309,6 +309,7 @@ export class PipelineService {
   async deployAfterBuildSuccess(
     pipelineId: string,
     userId: string,
+    executionId?: string,
   ): Promise<{
     deployUrl: string;
     ecsServiceArn: string;
@@ -338,6 +339,7 @@ export class PipelineService {
       const deploymentResult = await this.deploymentService.deployAfterBuild(
         pipelineId,
         userId,
+        executionId,
       );
 
       this.logger.log(`배포 완료: ${deploymentResult.deployUrl}`);

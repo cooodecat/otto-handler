@@ -1,3 +1,4 @@
+import type { PipelineData } from "./PipelineData";
 import type { Recordstringstring } from "./Recordstringstring";
 
 export type UpdatePipelineRequestDto = {
@@ -9,7 +10,7 @@ export type UpdatePipelineRequestDto = {
   /**
    * 파이프라인 데이터 (JSON)
    */
-  data?: any | undefined;
+  data?: undefined | PipelineData;
 
   /**
    * env 관련

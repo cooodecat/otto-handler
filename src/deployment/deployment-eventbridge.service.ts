@@ -70,6 +70,7 @@ export class DeploymentEventBridgeService {
             'detail-type': [
               'ECS Service State Change',
               'ECS Task State Change',
+              'ECS Deployment State Change', // 배포 완료/실패/진행중 이벤트 추가
             ],
             detail: {
               clusterArn: [

@@ -623,7 +623,7 @@ export class BuildSpecGeneratorService {
           ? `${packageManager} run ${buildNode.scriptName as string}`
           : `${packageManager} run build`;
       default:
-        return `${packageManager} run build`;
+        return ``;
     }
   }
 }
