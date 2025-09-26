@@ -875,18 +875,18 @@ export class LogsService {
     }
 
     const logGroupName = `/ecs/otto-pipelines/${execution.pipelineId}`;
-    
+
     try {
       // First, discover actual log streams that match this execution
       const matchingStreams = await this.discoverExecutionLogStreams(
         logGroupName,
         executionId,
-        options.containerName
+        options.containerName,
       );
 
       if (matchingStreams.length === 0) {
         this.logger.warn(
-          `No matching log streams found for execution ${executionId} in ${logGroupName}`
+          `No matching log streams found for execution ${executionId} in ${logGroupName}`,
         );
         return {
           logs: [],
@@ -897,7 +897,7 @@ export class LogsService {
       }
 
       this.logger.log(
-        `Found ${matchingStreams.length} matching streams for execution ${executionId}: ${matchingStreams.join(', ')}`
+        `Found ${matchingStreams.length} matching streams for execution ${executionId}: ${matchingStreams.join(', ')}`,
       );
 
       const filterParams: FilterLogEventsCommandInput = {
@@ -915,11 +915,11 @@ export class LogsService {
         .map((event) => {
           const message = event.message || '';
           const streamName = event.logStreamName || 'unknown';
-          
+
           // Extract container name from stream name
           // Stream format: {executionId}/{containerName}/{containerInstanceId}
           const containerName = this.extractContainerNameFromStream(streamName);
-          
+
           return {
             timestamp: new Date(event.timestamp || Date.now()).toISOString(),
             message,
@@ -928,7 +928,10 @@ export class LogsService {
             containerName,
           };
         })
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        .sort(
+          (a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
 
       return {
         logs,
@@ -942,7 +945,7 @@ export class LogsService {
         error,
       );
 
-      if (error.name === 'ResourceNotFoundException') {
+      if ((error as Error).name === 'ResourceNotFoundException') {
         return {
           logs: [],
           logGroupName,
@@ -964,8 +967,10 @@ export class LogsService {
     containerName?: string,
   ): Promise<string[]> {
     try {
-      const { DescribeLogStreamsCommand } = await import('@aws-sdk/client-cloudwatch-logs');
-      
+      const { DescribeLogStreamsCommand } = await import(
+        '@aws-sdk/client-cloudwatch-logs'
+      );
+
       // Get all log streams in the log group with prefix matching execution
       const command = new DescribeLogStreamsCommand({
         logGroupName,
@@ -978,8 +983,8 @@ export class LogsService {
       const response = await this.cloudwatchClient.send(command);
       const streams = response.logStreams || [];
 
-      let matchingStreams = streams
-        .filter(stream => {
+      const matchingStreams = streams
+        .filter((stream) => {
           const streamName = stream.logStreamName || '';
           // Must start with {executionId}
           if (!streamName.startsWith(`${executionId}`)) {
@@ -991,11 +996,11 @@ export class LogsService {
           }
           return true;
         })
-        .map(stream => stream.logStreamName!)
+        .map((stream) => stream.logStreamName!)
         .filter(Boolean);
 
       this.logger.log(
-        `Discovered ${matchingStreams.length} streams for execution ${executionId}: ${matchingStreams.join(', ')}`
+        `Discovered ${matchingStreams.length} streams for execution ${executionId}: ${matchingStreams.join(', ')}`,
       );
 
       return matchingStreams;
@@ -1012,7 +1017,9 @@ export class LogsService {
    * Extract container name from ECS log stream name
    * Stream format: {executionId}/{containerName}/{containerInstanceId}
    */
-  private extractContainerNameFromStream(streamName: string): string | undefined {
+  private extractContainerNameFromStream(
+    streamName: string,
+  ): string | undefined {
     const parts = streamName.split('/');
     if (parts.length >= 2) {
       return parts[1]; // containerName
