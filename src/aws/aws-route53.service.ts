@@ -26,10 +26,9 @@ export class AwsRoute53Service {
   private readonly route53Client: Route53Client;
 
   constructor(private configService: ConfigService) {
-    const region = this.configService.get<string>('AWS_REGION') || 'us-east-1';
-
+    // Route53은 글로벌 서비스지만, SDK 요구사항으로 리전 지정 (ap-northeast-2 하드코딩)
     this.route53Client = new Route53Client({
-      region,
+      region: 'ap-northeast-2',
       credentials: {
         accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
         secretAccessKey: this.configService.get<string>(

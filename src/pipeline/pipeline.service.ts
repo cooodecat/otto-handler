@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Pipeline } from '../database/entities/pipeline.entity';
 import { Project } from '../database/entities/project.entity';
+import { Deployment } from '../database/entities/deployment.entity';
 import { CodeBuildService } from '../codebuild/codebuild.service';
 import { ECRService } from '../codebuild/ecr.service';
 import { DeploymentService } from '../deployment/deployment.service';
@@ -24,6 +25,8 @@ export class PipelineService {
     private readonly pipelineRepository: Repository<Pipeline>,
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Deployment)
+    private readonly deploymentRepository: Repository<Deployment>,
     private readonly codeBuildService: CodeBuildService,
     private readonly ecrService: ECRService,
     private readonly deploymentService: DeploymentService,
@@ -426,6 +429,51 @@ export class PipelineService {
     return {
       ...healthResult,
       deployUrl: pipeline.deployUrl,
+    };
+  }
+
+  /**
+   * 배포 상태 조회
+   */
+  async getDeploymentStatus(
+    pipelineId: string,
+    userId: string,
+  ): Promise<{
+    status: string;
+    deployUrl: string | null;
+    updatedAt: Date;
+  }> {
+    // 파이프라인 권한 확인
+    const pipeline = await this.pipelineRepository
+      .createQueryBuilder('pipeline')
+      .leftJoinAndSelect('pipeline.project', 'project')
+      .where('pipeline.pipelineId = :pipelineId', { pipelineId })
+      .andWhere('project.userId = :userId', { userId })
+      .getOne();
+
+    if (!pipeline) {
+      throw new NotFoundException('Pipeline not found or access denied');
+    }
+
+    // deployments 테이블에서 최신 배포 정보 조회
+    const deployment = await this.deploymentRepository
+      .createQueryBuilder('deployment')
+      .where('deployment.pipelineId = :pipelineId', { pipelineId })
+      .orderBy('deployment.createdAt', 'DESC')
+      .getOne();
+
+    if (!deployment) {
+      return {
+        status: 'NOT_DEPLOYED',
+        deployUrl: null,
+        updatedAt: new Date(),
+      };
+    }
+
+    return {
+      status: deployment.status,
+      deployUrl: deployment.deployUrl,
+      updatedAt: deployment.updatedAt,
     };
   }
 

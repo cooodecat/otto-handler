@@ -431,7 +431,7 @@ export class EventBridgeService {
         this.logger.log(`🟢 ===============================================`);
 
         // 🎯 배포를 SUCCESS로 업데이트
-        this.updateDeploymentToSuccess(serviceName);
+        void this.updateDeploymentToSuccess(serviceName);
       } else if (
         ecsDetail.lastStatus === 'STOPPED' ||
         ecsDetail.lastStatus === 'DEPROVISIONING'

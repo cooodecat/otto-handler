@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -14,6 +15,7 @@ import { BuildSpecGeneratorService } from './buildspec-generator.service';
 import { ECRService } from './ecr.service';
 import { EventBridgeService } from './eventbridge.service';
 import { CloudWatchLogsService } from './cloudwatch-logs.service';
+import { CloudwatchService } from '../logs/services/cloudwatch/cloudwatch.service';
 import { Execution } from '../database/entities/execution.entity';
 import {
   ExecutionType,
@@ -35,6 +37,7 @@ export class CodeBuildService {
     private readonly ecrService: ECRService,
     private readonly eventBridgeService: EventBridgeService,
     private readonly cloudWatchLogsService: CloudWatchLogsService,
+    private readonly moduleRef: ModuleRef,
   ) {
     const region = process.env.AWS_REGION || 'ap-northeast-2';
 
@@ -382,8 +385,25 @@ export class CodeBuildService {
             `Created execution record ${executionId} for build ${buildId} with logStream ${logStreamName}`,
           );
 
-          // CloudWatch 폴링은 EventBridge IN_PROGRESS 이벤트에서 시작됨
-          // 여기서는 execution 레코드만 생성
+          // CloudWatch 폴링 즉시 시작 (EventBridge 이벤트 백업)
+          // EventBridge가 실패해도 로그를 수집할 수 있도록
+          try {
+            const cloudwatchService = this.moduleRef.get<CloudwatchService>(
+              'CloudwatchService',
+              { strict: false },
+            );
+            if (cloudwatchService && execution.logStreamName) {
+              this.logger.log(
+                `Starting CloudWatch polling immediately for execution ${executionId}`,
+              );
+              await cloudwatchService.startPolling(execution);
+            }
+          } catch (error) {
+            this.logger.warn(
+              `Could not start CloudWatch polling immediately: ${(error as Error).message}`,
+            );
+            // EventBridge IN_PROGRESS 이벤트에서 폴링이 시작될 것임
+          }
         } catch (error) {
           this.logger.error(
             `Failed to create execution record: ${(error as Error).message}`,

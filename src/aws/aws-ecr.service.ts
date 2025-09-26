@@ -41,7 +41,7 @@ export class AwsEcrService {
 
   constructor(private configService: ConfigService) {
     this.ecrClient = new ECRClient({
-      region: this.configService.get<string>('AWS_REGION') || 'us-east-1',
+      region: 'ap-northeast-2', // 하드코딩 - 한국 리전만 사용
       credentials: {
         accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
         secretAccessKey: this.configService.get<string>(

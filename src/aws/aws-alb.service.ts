@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EC2Client, DescribeSubnetsCommand } from '@aws-sdk/client-ec2';
 import {
   ActionTypeEnum,
   CreateListenerCommand,
@@ -40,18 +41,26 @@ import {
 export class AwsAlbService {
   private readonly logger = new Logger(AwsAlbService.name);
   private readonly elbv2Client: ElasticLoadBalancingV2Client;
+  private readonly ec2Client: EC2Client;
 
   constructor(private configService: ConfigService) {
-    const region = this.configService.get<string>('AWS_REGION') || 'us-east-1';
+    // 리전을 ap-northeast-2로 하드코딩
+    const region = 'ap-northeast-2';
+    this.logger.log(`ALB Service 초기화 - 리전: ${region}`);
+
+    const credentials = {
+      accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
+      secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY')!,
+    };
 
     this.elbv2Client = new ElasticLoadBalancingV2Client({
       region,
-      credentials: {
-        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID')!,
-        secretAccessKey: this.configService.get<string>(
-          'AWS_SECRET_ACCESS_KEY',
-        )!,
-      },
+      credentials,
+    });
+
+    this.ec2Client = new EC2Client({
+      region,
+      credentials,
     });
   }
 
@@ -63,6 +72,18 @@ export class AwsAlbService {
     input: CreateLoadBalancerInput,
   ): Promise<LoadBalancerInfo> {
     try {
+      // 디버깅: 입력된 서브넷 확인
+      this.logger.log(`ALB 생성 시도 - 이름: ${input.name}`);
+      this.logger.log(
+        `ALB 생성 시도 - 서브넷: ${JSON.stringify(input.subnets)}`,
+      );
+      this.logger.log(
+        `ALB 생성 시도 - 보안그룹: ${JSON.stringify(input.securityGroups)}`,
+      );
+
+      // 서브넷 존재 여부 직접 확인
+      await this.verifySubnetsExist(input.subnets);
+
       const command = new CreateLoadBalancerCommand({
         Name: input.name,
         Subnets: input.subnets,
@@ -492,17 +513,56 @@ export class AwsAlbService {
   }
 
   /**
+   * 서브넷 존재 여부 확인
+   * EC2 API를 사용하여 서브넷이 실제로 존재하는지 확인합니다
+   */
+  private async verifySubnetsExist(subnetIds: string[]): Promise<void> {
+    try {
+      this.logger.log(`서브넷 검증 시작: ${JSON.stringify(subnetIds)}`);
+
+      const command = new DescribeSubnetsCommand({
+        SubnetIds: subnetIds,
+      });
+
+      const result = await this.ec2Client.send(command);
+
+      if (!result.Subnets || result.Subnets.length !== subnetIds.length) {
+        throw new Error(
+          `일부 서브넷을 찾을 수 없습니다. 요청: ${subnetIds.length}개, 발견: ${result.Subnets?.length || 0}개`,
+        );
+      }
+
+      // 서브넷 정보 로깅
+      result.Subnets.forEach((subnet) => {
+        this.logger.log(
+          `✅ 서브넷 확인: ${subnet.SubnetId} - AZ: ${subnet.AvailabilityZone}, VPC: ${subnet.VpcId}, CIDR: ${subnet.CidrBlock}`,
+        );
+      });
+
+      this.logger.log(`모든 서브넷이 검증되었습니다`);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      this.logger.error(`서브넷 검증 실패: ${errorMessage}`);
+      this.logger.error(`서브넷 ID: ${JSON.stringify(subnetIds)}`);
+      this.logger.error(`에러 상세: ${JSON.stringify(error)}`);
+      throw new Error(`서브넷 검증 실패: ${errorMessage}`);
+    }
+  }
+
+  /**
    * 이름으로 ALB 검색
    * 모든 ALB를 조회한 후 이름으로 필터링합니다
    */
   async findLoadBalancerByName(name: string): Promise<LoadBalancerInfo | null> {
     try {
-      const command = new DescribeLoadBalancersCommand({});
+      // 이름으로 직접 검색 (더 효율적)
+      const command = new DescribeLoadBalancersCommand({
+        Names: [name],
+      });
       const result = await this.elbv2Client.send(command);
 
-      const loadBalancer = result.LoadBalancers?.find(
-        (lb) => lb.LoadBalancerName === name,
-      );
+      const loadBalancer = result.LoadBalancers?.[0];
 
       if (!loadBalancer) {
         return null;
@@ -527,8 +587,20 @@ export class AwsAlbService {
         securityGroups: loadBalancer.SecurityGroups || [],
       };
     } catch (error) {
-      this.logger.error(`ALB 이름 검색 실패: ${error}`);
-      throw new Error(`ALB 이름 검색 실패: ${error}`);
+      // LoadBalancerNotFound 에러는 정상적인 경우 (ALB가 없음)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const errorName = error?.name as string | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const errorCode = error?.Code as string | undefined;
+      if (
+        errorName === 'LoadBalancerNotFoundException' ||
+        errorCode === 'LoadBalancerNotFound'
+      ) {
+        this.logger.log(`ALB가 존재하지 않음: ${name}`);
+        return null;
+      }
+      this.logger.warn(`ALB 이름 검색 중 예외 발생: ${error}`);
+      return null;
     }
   }
 

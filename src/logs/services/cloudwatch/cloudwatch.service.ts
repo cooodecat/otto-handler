@@ -90,9 +90,19 @@ export class CloudwatchService {
     let nextToken: string | undefined;
     let retryCount = 0;
     const maxRetries = 5;
+    let initialDelay = true; // 처음 시작 시 지연 플래그
 
     const pollInterval = setInterval(() => {
       (async () => {
+        // 처음 폴링 시작할 때 3초 대기 (로그 그룹 생성 시간 확보)
+        if (initialDelay) {
+          this.logger.log(
+            `Waiting 3 seconds before first poll for ${execution.executionId} to allow log group creation...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          initialDelay = false;
+        }
+
         try {
           const input: GetLogEventsCommandInput = {
             logGroupName: project.cloudwatchLogGroup || undefined,
@@ -151,6 +161,20 @@ export class CloudwatchService {
             this.stopPolling(execution.executionId);
           }
         } catch (error) {
+          // ResourceNotFoundException은 정상적인 상황 - 로그 그룹이 아직 생성 중
+          if (
+            error instanceof Error &&
+            error.name === 'ResourceNotFoundException'
+          ) {
+            // 로그 그룹이 아직 없는 경우 재시도 카운트를 늘리지 않음
+            this.logger.debug(
+              `Log group not yet available for ${execution.executionId}. Will continue polling...`,
+            );
+            // 초기 단계에서는 정상적인 상황이므로 계속 폴링
+            return;
+          }
+
+          // 다른 에러인 경우만 재시도 카운트 증가
           retryCount++;
           this.logger.error(
             `Polling error for ${execution.executionId} (retry ${retryCount}/${maxRetries}):`,
@@ -309,6 +333,22 @@ export class CloudwatchService {
 
       return totalLogsSaved;
     } catch (error) {
+      // ResourceNotFoundException은 로그 그룹이 아직 생성되지 않은 정상적인 상황일 수 있음
+      if (
+        error instanceof Error &&
+        error.name === 'ResourceNotFoundException'
+      ) {
+        this.logger.warn(
+          `Log group does not exist yet for execution ${executionId}. This is normal if the build just started.`,
+        );
+        this.logger.warn(
+          `Log Group: ${logGroupName}, Log Stream: ${logStreamName}`,
+        );
+        // 에러를 throw하지 않고 0을 반환
+        return 0;
+      }
+
+      // 다른 에러는 그대로 처리
       this.logger.error(
         `Failed to fetch logs for execution ${executionId}: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -391,6 +431,18 @@ export class CloudwatchService {
 
       return recoveredCount;
     } catch (error) {
+      // ResourceNotFoundException은 정상적인 상황 - 로그 그룹이 아직 없을 수 있음
+      if (
+        error instanceof Error &&
+        error.name === 'ResourceNotFoundException'
+      ) {
+        this.logger.debug(
+          `Log group not yet available for execution ${execution.executionId}. Will retry later.`,
+        );
+        return 0;
+      }
+
+      // 다른 에러만 로깅
       this.logger.error(
         `Failed to auto-recover logs for execution ${execution.executionId}: ${
           error instanceof Error ? error.message : 'Unknown error'

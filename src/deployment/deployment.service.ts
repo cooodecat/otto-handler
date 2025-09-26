@@ -756,17 +756,36 @@ export class DeploymentService {
       const infrastructure =
         await this.infrastructureService.getOrCreateInfrastructure();
 
-      const subnetIds = infrastructure.subnets.map((subnet) => subnet.id);
+      // ALB는 최소 2개의 가용 영역이 필요하므로 처음 2개만 사용
+      const allSubnetIds = infrastructure.subnets.map((subnet) => subnet.id);
+      const subnetIds = allSubnetIds.slice(0, 2);
       const vpcId = infrastructure.vpc.id;
 
       this.logger.log(
-        `   🌐 발견된 서브넷: ${subnetIds.join(', ')} (VPC: ${vpcId})`,
+        `   🌐 발견된 서브넷 (처음 2개만 사용): ${subnetIds.join(', ')} (전체: ${allSubnetIds.length}개, VPC: ${vpcId})`,
       );
 
       return { subnetIds, vpcId };
     } catch (error) {
-      this.logger.error(`인프라 구성 조회 실패: ${error}`);
-      // 폴백: 환경변수에서 가져오기
+      this.logger.error(`인프라 구성 조회 실패 - 기본 VPC 사용 시도: ${error}`);
+
+      // 폴백 1: 기본 VPC와 서브넷 직접 조회
+      try {
+        // 기본 VPC 사용 (이미 확인한 값)
+        const defaultVpcId = 'vpc-09b8e1ceef0b4ef3f';
+        const defaultSubnets = [
+          'subnet-0a595987c4eb378e3', // ap-northeast-2a
+          'subnet-0b85f84597f9ed138', // ap-northeast-2c
+        ];
+
+        this.logger.log(`   🔄 폴백: 기본 VPC 사용 - ${defaultVpcId}`);
+
+        return { subnetIds: defaultSubnets, vpcId: defaultVpcId };
+      } catch (fallbackError) {
+        this.logger.error(`폴백도 실패: ${fallbackError}`);
+      }
+
+      // 폴백 2: 환경변수에서 가져오기
       const fallbackSubnets = this.configService.get<string>(
         'AWS_ECS_SUBNETS',
         '',
@@ -858,8 +877,21 @@ export class DeploymentService {
 
       return sgIds;
     } catch (error) {
-      this.logger.error(`인프라 구성 조회 실패: ${error}`);
-      // 폴백: 환경변수에서 가져오기
+      this.logger.error(
+        `인프라 구성 조회 실패 - 기본 보안 그룹 사용: ${error}`,
+      );
+
+      // 폴백 1: 생성한 ALB 보안 그룹과 기본 보안 그룹 사용
+      const defaultSecurityGroups = [
+        'sg-01608f9c41943a721', // otto-alb-sg (생성한 ALB용)
+        'sg-0b56c9f6c2bfd7764', // default security group
+      ];
+
+      this.logger.log(
+        `   🔄 폴백: 보안 그룹 사용 - ${defaultSecurityGroups.join(', ')}`,
+      );
+
+      // 폴백 2: 환경변수에서 가져오기
       const fallbackSgs = this.configService.get<string>(
         'AWS_ECS_SECURITY_GROUPS',
         '',
@@ -867,7 +899,8 @@ export class DeploymentService {
       if (fallbackSgs) {
         return fallbackSgs.split(',');
       }
-      throw new Error(`인프라 구성 조회 실패: ${error}`);
+
+      return defaultSecurityGroups;
     }
   }
 }
